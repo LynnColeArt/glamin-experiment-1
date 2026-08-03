@@ -81,6 +81,15 @@ struct ActionPositiveSpec {
     llama_token target_token{LLAMA_TOKEN_NULL};
 };
 
+struct EntityAddressProbeSpec {
+    std::size_t entity{0};
+    std::size_t relation{0};
+    std::string name;
+    std::string prompt;
+    llama_token target_token{LLAMA_TOKEN_NULL};
+    InferenceResult baseline;
+};
+
 void model_log(const ggml_log_level level, const char* text, void*) {
     if (level == GGML_LOG_LEVEL_ERROR) {
         std::fputs(text, stderr);
@@ -242,6 +251,38 @@ two_stage_evaluation_prompts(
              "; requested attribute " + relation + ".\nAnswer:"},
         {"archive",
          "Archive[" + entity + "] / " + relation + " / value =>"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+entity_address_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"prose",
+         "From retained memory, return the " + relation +
+             " registered for object <" + entity + ">.\nAnswer:"},
+        {"record",
+         "Object record { name: \"" + entity + "\", field: \"" + relation +
+             "\" }\nstored value:"},
+        {"path",
+         "memory/object/" + entity + "/attribute/" + relation + "/value="},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+entity_address_evaluation_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"question",
+         "Which memorized " + relation +
+             " is attached to the object named " + entity + "?\nResponse:"},
+        {"card",
+         "Lookup card [object=" + entity + "][attribute=" + relation +
+             "]\nvalue:"},
+        {"uri",
+         "vault://records/" + entity + "?field=" + relation + "#value="},
     };
 }
 
@@ -701,6 +742,40 @@ int run(const std::string& model_path) {
             });
         }
     }
+
+    auto entity_address_entity_validation = entity_validation;
+    auto entity_address_relation_validation = relation_validation;
+    auto entity_address_action_validation = action_validation;
+    std::vector<EntityAddressProbeSpec> entity_address_development;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        for (const auto& prompt : entity_address_development_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            auto inference = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            entity_address_entity_validation.emplace_back(
+                tuple.entity, inference);
+            entity_address_relation_validation.emplace_back(
+                tuple.relation, inference);
+            entity_address_action_validation.push_back({
+                tuple_index,
+                {inference.hidden_state},
+            });
+            entity_address_development.push_back({
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                std::move(inference),
+            });
+        }
+    }
+
     const auto action_memory = gx1::ActivationMemoryBuilder::build(
         action_construction,
         action_negatives,
@@ -712,9 +787,45 @@ int run(const std::string& model_path) {
             gx1::ActivationProjectionStrategy::variance,
             gx1::ActivationValidationScope::association,
         });
+    const auto entity_address_variance_memory = build_factor(
+        entity_prompts,
+        entity_negatives,
+        entity_address_entity_validation,
+        gx1::ActivationProjectionStrategy::variance);
+    const auto entity_address_association_memory = build_factor(
+        entity_prompts,
+        entity_negatives,
+        entity_address_entity_validation,
+        gx1::ActivationProjectionStrategy::association_signal);
+    const auto entity_address_relation_memory = build_factor(
+        relation_prompts,
+        relation_negatives,
+        entity_address_relation_validation,
+        gx1::ActivationProjectionStrategy::association_signal);
+    const auto entity_address_action_memory = gx1::ActivationMemoryBuilder::build(
+        action_construction,
+        action_negatives,
+        entity_address_action_validation,
+        gx1::ActivationMemoryBuildConfig{
+            256U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::variance,
+            gx1::ActivationValidationScope::association,
+        });
     std::cout << "action_radius=" << action_memory.maximum_distance
               << " action_negative=" << action_memory.minimum_negative_distance
               << '\n';
+    std::cout << "entity_address_variance_radius="
+              << entity_address_variance_memory.maximum_distance
+              << " entity_address_association_radius="
+              << entity_address_association_memory.maximum_distance
+              << " entity_address_negative="
+              << entity_address_association_memory.minimum_negative_distance
+              << " entity_address_relation_radius="
+              << entity_address_relation_memory.maximum_distance
+              << " entity_address_action_radius="
+              << entity_address_action_memory.maximum_distance << '\n';
 
     auto payloads = std::make_shared<gx1::TupleResidualLedger>();
     for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
@@ -733,6 +844,29 @@ int run(const std::string& model_path) {
             tuple.late_teacher.hidden_state);
     }
 
+    auto entity_address_payloads = std::make_shared<gx1::TupleResidualLedger>();
+    for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
+        const auto& action = action_view_specs[index];
+        entity_address_payloads->insert_variant(
+            action.entity,
+            action.relation,
+            entity_address_action_memory.keys[index],
+            entity_address_action_memory.residuals[index]);
+    }
+
+    const auto entity_address_variance_generation = generations.mount_flat(
+        "entity-address-variance",
+        entity_address_variance_memory.query_dimension,
+        flatten(entity_address_variance_memory.keys));
+    const auto entity_address_association_generation = generations.mount_flat(
+        "entity-address-association",
+        entity_address_association_memory.query_dimension,
+        flatten(entity_address_association_memory.keys));
+    const auto entity_address_relation_generation = generations.mount_flat(
+        "entity-address-relations",
+        entity_address_relation_memory.query_dimension,
+        flatten(entity_address_relation_memory.keys));
+
     const auto make_hook = [&]() {
         generations.activate(entity_generation);
         auto entity_pin = generations.pin_active();
@@ -749,6 +883,29 @@ int run(const std::string& model_path) {
             payloads,
             action_memory.maximum_distance,
             factor_config(action_memory));
+    };
+
+    const auto make_entity_address_hook = [&](const bool association_signal) {
+        const auto& candidate_memory = association_signal
+                                           ? entity_address_association_memory
+                                           : entity_address_variance_memory;
+        generations.activate(
+            association_signal ? entity_address_association_generation
+                               : entity_address_variance_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(entity_address_relation_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(candidate_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(entity_address_relation_memory),
+            relation_labels,
+            1.0F,
+            entity_address_payloads,
+            entity_address_action_memory.maximum_distance,
+            factor_config(entity_address_action_memory));
     };
 
     bool action_views_recalled = true;
@@ -953,6 +1110,122 @@ int run(const std::string& model_path) {
         throw std::runtime_error("factorized memory failed compositional abstention");
     }
 
+    std::size_t entity_address_variance_development_routes = 0U;
+    std::size_t entity_address_association_development_routes = 0U;
+    std::size_t entity_address_association_development_recall = 0U;
+    for (const auto& positive : entity_address_development) {
+        const auto variance = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_entity_address_hook(false),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto association = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_entity_address_hook(true),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto variance_routed =
+            variance.hook.applied &&
+            variance.hook.entity.factor_label == positive.entity &&
+            variance.hook.relation.factor_label == positive.relation;
+        const auto association_routed =
+            association.hook.applied &&
+            association.hook.entity.factor_label == positive.entity &&
+            association.hook.relation.factor_label == positive.relation;
+        const auto association_rank = token_rank(
+            association.logits, positive.target_token);
+        entity_address_variance_development_routes +=
+            variance_routed ? 1U : 0U;
+        entity_address_association_development_routes +=
+            association_routed ? 1U : 0U;
+        entity_address_association_development_recall +=
+            association_routed && association_rank == 1U ? 1U : 0U;
+        std::cout << "entity_address_development=" << positive.name << '/'
+                  << entities[positive.entity] << '/'
+                  << relations[positive.relation]
+                  << " variance_entity_distance="
+                  << variance.hook.entity.distance
+                  << " variance_routed="
+                  << (variance_routed ? "yes" : "no")
+                  << " association_entity_distance="
+                  << association.hook.entity.distance
+                  << " association_routed="
+                  << (association_routed ? "yes" : "no")
+                  << " association_rank=" << association_rank << '\n';
+    }
+    std::cout << "entity_address_development_summary=variance_routes "
+              << entity_address_variance_development_routes << '/'
+              << entity_address_development.size()
+              << " association_routes "
+              << entity_address_association_development_routes << '/'
+              << entity_address_development.size()
+              << " association_rank_one "
+              << entity_address_association_development_recall << '/'
+              << entity_address_development.size() << '\n';
+    if (entity_address_association_development_routes !=
+            entity_address_development.size() ||
+        entity_address_association_development_recall !=
+            entity_address_development.size()) {
+        throw std::runtime_error(
+            "association-signal entity addressing failed its development set");
+    }
+
+    bool entity_address_wrong_intents_abstained = true;
+    for (const auto& negative : wrong_intents) {
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            negative.prompt,
+            make_entity_address_hook(true),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto delta = maximum_logit_difference(
+            negative.baseline.logits, memory.logits);
+        entity_address_wrong_intents_abstained =
+            entity_address_wrong_intents_abstained &&
+            memory.hook.entity.accepted && memory.hook.relation.accepted &&
+            memory.hook.entity.factor_label == negative.entity &&
+            memory.hook.relation.factor_label == negative.relation &&
+            memory.hook.tuple_found && !memory.hook.action_accepted &&
+            !memory.hook.applied && delta <= 1.0e-5F;
+    }
+    if (!entity_address_wrong_intents_abstained) {
+        throw std::runtime_error(
+            "entity-address development admitted a wrong-intent control");
+    }
+
+    bool entity_address_missing_abstained = true;
+    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
+                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
+        const auto& baseline = tuple_baselines[missing.first][missing.second];
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            tuple_prompt(entities[missing.first], relations[missing.second]),
+            make_entity_address_hook(true),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto delta = maximum_logit_difference(
+            baseline.logits, memory.logits);
+        entity_address_missing_abstained =
+            entity_address_missing_abstained &&
+            memory.hook.entity.accepted && memory.hook.relation.accepted &&
+            !memory.hook.tuple_found && !memory.hook.applied &&
+            delta <= 1.0e-5F;
+    }
+    if (!entity_address_missing_abstained) {
+        throw std::runtime_error(
+            "entity-address development failed compositional abstention");
+    }
+
     std::size_t evaluation_routed = 0U;
     std::size_t evaluation_recalled = 0U;
     for (const auto& tuple : tuples) {
@@ -1106,11 +1379,185 @@ int run(const std::string& model_path) {
               << " target_state_conditional="
               << target_state_evaluation_recalled << '/'
               << two_stage_evaluation_routes << '\n';
-    if (two_stage_evaluation_routes != two_stage_evaluation_count ||
-        target_state_evaluation_recalled != two_stage_evaluation_count) {
+    if (two_stage_evaluation_routes != 10U ||
+        target_state_evaluation_recalled != 10U) {
         throw std::runtime_error(
-            "two-stage target-state memory failed the frozen evaluation set");
+            "historical two-stage frozen result drifted from 10/12");
     }
+
+    std::size_t entity_address_variance_evaluation_routes = 0U;
+    std::size_t entity_address_variance_evaluation_recall = 0U;
+    std::size_t entity_address_association_evaluation_routes = 0U;
+    std::size_t entity_address_association_evaluation_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : entity_address_evaluation_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto variance = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_entity_address_hook(false),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto association = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_entity_address_hook(true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto variance_rank = token_rank(
+                variance.logits, tuple.target_token);
+            const auto association_rank = token_rank(
+                association.logits, tuple.target_token);
+            const auto variance_routed =
+                variance.hook.applied &&
+                variance.hook.entity.factor_label == tuple.entity &&
+                variance.hook.relation.factor_label == tuple.relation;
+            const auto association_routed =
+                association.hook.applied &&
+                association.hook.entity.factor_label == tuple.entity &&
+                association.hook.relation.factor_label == tuple.relation;
+            entity_address_variance_evaluation_routes +=
+                variance_routed ? 1U : 0U;
+            entity_address_variance_evaluation_recall +=
+                variance_routed && variance_rank == 1U ? 1U : 0U;
+            entity_address_association_evaluation_routes +=
+                association_routed ? 1U : 0U;
+            entity_address_association_evaluation_recall +=
+                association_routed && association_rank == 1U ? 1U : 0U;
+            std::cout << "entity_address_evaluation=" << held_out.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " variance_entity_distance="
+                      << variance.hook.entity.distance
+                      << " variance_entity_accepted="
+                      << (variance.hook.entity.accepted ? "yes" : "no")
+                      << " variance_routed="
+                      << (variance_routed ? "yes" : "no")
+                      << " variance_rank=" << variance_rank
+                      << " association_entity_distance="
+                      << association.hook.entity.distance
+                      << " association_entity_accepted="
+                      << (association.hook.entity.accepted ? "yes" : "no")
+                      << " association_relation_accepted="
+                      << (association.hook.relation.accepted ? "yes" : "no")
+                      << " association_action_accepted="
+                      << (association.hook.action_accepted ? "yes" : "no")
+                      << " association_routed="
+                      << (association_routed ? "yes" : "no")
+                      << " association_rank=" << association_rank
+                      << " association_logit_delta="
+                      << maximum_logit_difference(
+                             baseline.logits, association.logits)
+                      << " teacher_logit_delta="
+                      << maximum_logit_difference(
+                             tuple.late_teacher.logits, association.logits)
+                      << '\n';
+        }
+    }
+    const auto entity_address_evaluation_count = tuples.size() * 3U;
+
+    std::size_t entity_address_unknown_entity_noops = 0U;
+    std::size_t entity_address_unknown_entity_count = 0U;
+    for (const auto& unknown : {std::string("Rigel"), std::string("Sirius")}) {
+        for (const auto& held_out : entity_address_evaluation_prompts(
+                 unknown, "color")) {
+            ++entity_address_unknown_entity_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_entity_address_hook(true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto exact_noop = !memory.hook.entity.accepted &&
+                                    !memory.hook.applied && delta <= 1.0e-5F;
+            entity_address_unknown_entity_noops += exact_noop ? 1U : 0U;
+            std::cout << "entity_address_unknown=" << held_out.first << '/'
+                      << unknown
+                      << " nearest_entity=" << memory.hook.entity.factor_label
+                      << " entity_distance=" << memory.hook.entity.distance
+                      << " entity_accepted="
+                      << (memory.hook.entity.accepted ? "yes" : "no")
+                      << " applied="
+                      << (memory.hook.applied ? "yes" : "no")
+                      << " max_logit_delta=" << delta << '\n';
+        }
+    }
+
+    std::size_t entity_address_historical_routes = 0U;
+    std::size_t entity_address_historical_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : two_stage_evaluation_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_entity_address_hook(true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto routed =
+                memory.hook.applied &&
+                memory.hook.entity.factor_label == tuple.entity &&
+                memory.hook.relation.factor_label == tuple.relation;
+            entity_address_historical_routes += routed ? 1U : 0U;
+            entity_address_historical_recall +=
+                routed && token_rank(memory.logits, tuple.target_token) == 1U
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::cout << "entity_address_evaluation_summary=variance_routes "
+              << entity_address_variance_evaluation_routes << '/'
+              << entity_address_evaluation_count
+              << " variance_rank_one "
+              << entity_address_variance_evaluation_recall << '/'
+              << entity_address_evaluation_count
+              << " association_routes "
+              << entity_address_association_evaluation_routes << '/'
+              << entity_address_evaluation_count
+              << " association_rank_one "
+              << entity_address_association_evaluation_recall << '/'
+              << entity_address_evaluation_count
+              << " unknown_entity_noops "
+              << entity_address_unknown_entity_noops << '/'
+              << entity_address_unknown_entity_count
+              << " historical_routes " << entity_address_historical_routes
+              << '/' << two_stage_evaluation_count
+              << " historical_rank_one "
+              << entity_address_historical_recall << '/'
+              << two_stage_evaluation_count << '\n';
+    if (entity_address_association_evaluation_routes !=
+            entity_address_evaluation_count ||
+        entity_address_association_evaluation_recall !=
+            entity_address_evaluation_count ||
+        entity_address_unknown_entity_noops !=
+            entity_address_unknown_entity_count) {
+        throw std::runtime_error(
+            "association-signal entity addressing failed the frozen criterion");
+    }
+
     std::cout << "stored_tuples=" << tuples.size()
               << " registered_action_views=" << action_view_specs.size()
               << " development_action_views=" << action_positives.size()
@@ -1128,6 +1575,12 @@ int run(const std::string& model_path) {
               << " target_state_evaluation_recall="
               << target_state_evaluation_recalled << '/'
               << two_stage_evaluation_count
+              << " entity_address_evaluation_routes="
+              << entity_address_association_evaluation_routes << '/'
+              << entity_address_evaluation_count
+              << " entity_address_evaluation_recall="
+              << entity_address_association_evaluation_recall << '/'
+              << entity_address_evaluation_count
               << " missing_known_factor_tuples=2\n"
               << "factorized memory experiment passed\n";
     return EXIT_SUCCESS;

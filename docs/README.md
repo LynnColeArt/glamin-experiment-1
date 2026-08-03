@@ -24,6 +24,8 @@
   calibrated boundary exposed by overlapping entity–relation tuples.
 - [Factorized entity–relation memory](factorized-memory.md) records the bounded
   two-space tuple join, contextual action gate, and frozen-Qwen result.
+- [Entity-address invariance](entity-address-invariance.md) preregisters the
+  variance-versus-association-signal entity projection comparison.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
