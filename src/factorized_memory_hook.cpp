@@ -29,6 +29,16 @@ std::size_t projection_size(const FactorSearchConfig& config) {
     return hidden * query;
 }
 
+void validate_projection_config(const FactorSearchConfig& config) {
+    if (config.input_projection.size() != projection_size(config)) {
+        throw std::invalid_argument("factor projection has the wrong shape");
+    }
+    if (!all_finite(config.input_projection) ||
+        !std::isfinite(config.maximum_distance) || config.maximum_distance < 0.0F) {
+        throw std::invalid_argument("factor search coefficients are invalid");
+    }
+}
+
 void validate_config(
     const GlaminGenerationPin& pin,
     const FactorSearchConfig& config,
@@ -36,16 +46,12 @@ void validate_config(
     if (!pin.is_open()) {
         throw std::invalid_argument("factor search requires an open generation pin");
     }
-    if (pin.dimension() != config.query_dimension ||
-        config.input_projection.size() != projection_size(config)) {
+    validate_projection_config(config);
+    if (pin.dimension() != config.query_dimension) {
         throw std::invalid_argument("factor projection does not match its Glamin space");
     }
     if (pin.vector_count() != factor_labels.size()) {
         throw std::invalid_argument("factor labels do not match the Glamin rows");
-    }
-    if (!all_finite(config.input_projection) ||
-        !std::isfinite(config.maximum_distance) || config.maximum_distance < 0.0F) {
-        throw std::invalid_argument("factor search coefficients are invalid");
     }
 }
 
@@ -139,7 +145,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     std::vector<std::uint64_t> relation_labels,
     const float gate,
     std::shared_ptr<const TupleResidualLedger> payloads,
-    const float maximum_action_distance)
+    const float maximum_action_distance,
+    std::optional<FactorSearchConfig> action_config)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -148,11 +155,19 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       relation_labels_(std::move(relation_labels)),
       gate_(gate),
       payloads_(std::move(payloads)),
-      maximum_action_distance_(maximum_action_distance) {
+      maximum_action_distance_(maximum_action_distance),
+      action_config_(std::move(action_config)) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
         throw std::invalid_argument("factor spaces use different hidden dimensions");
+    }
+    if (action_config_) {
+        validate_projection_config(*action_config_);
+        if (action_config_->hidden_dimension != entity_config_.hidden_dimension) {
+            throw std::invalid_argument(
+                "action projection uses a different hidden dimension");
+        }
     }
     if (!std::isfinite(gate_) || !payloads_ ||
         !std::isfinite(maximum_action_distance_) || maximum_action_distance_ < 0.0F) {
@@ -183,10 +198,13 @@ FactorizedMemoryResult FactorizedLayerMemoryHook::apply_nearest(
         return result;
     }
 
+    const auto action_query = action_config_
+                                  ? project(*action_config_, hidden_state)
+                                  : hidden_state;
     const auto action = payloads_->select(
         result.entity.factor_label,
         result.relation.factor_label,
-        hidden_state);
+        action_query);
     if (action.residual == nullptr) {
         return result;
     }

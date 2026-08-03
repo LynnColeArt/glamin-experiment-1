@@ -44,8 +44,10 @@ generation-qualified residuals into a live Qwen3 graph. Eight activation-derived
 associations now produce their intended next tokens across 16 held-out prompts
 while 16 controls abstain exactly. A second in-inference hook independently
 retrieves entity and relation evidence, authorizes exact tuples, and selects a
-bounded contextual action: 18 registered contexts pass at rank one, while two
-missing known-factor tuples and 12 unfamiliar contexts abstain exactly. Broad
-multi-relation paraphrase generalization, persisted factorized artifacts,
+bounded contextual action. Its projected-action follow-up passes all 30
+registered contexts at rank one and preserves exact abstention for two missing
+known-factor tuples. A frozen unseen-paraphrase set produced 4/12 rank-one
+recalls, exposing compact relation syntax and two action-transfer failures.
+Broad multi-relation paraphrase generalization, persisted factorized artifacts,
 trained adapters, durable traces, and external procedural actions remain future
 work.

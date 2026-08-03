@@ -64,6 +64,8 @@ A rollback reproduced the baseline logits exactly in the same process.
   addressing and abstention boundary.
 - [x] Implement factorized entity/relation evidence, an exact tuple join, and a
   contextual action-distance gate inside inference.
+- [x] Probe projected relation/action addressing against a frozen paraphrase
+  set; record partial generalization (4/12) and the compact-syntax boundary.
 - [ ] Generalize relation and action-context representations to frozen,
   previously unseen paraphrase sets.
 - [ ] Persist and live-swap the complete factorized generation atomically.

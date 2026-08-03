@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -84,7 +85,8 @@ public:
         std::vector<std::uint64_t> relation_labels,
         float gate,
         std::shared_ptr<const TupleResidualLedger> payloads,
-        float maximum_action_distance = std::numeric_limits<float>::max());
+        float maximum_action_distance = std::numeric_limits<float>::max(),
+        std::optional<FactorSearchConfig> action_config = std::nullopt);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -122,6 +124,7 @@ private:
     float gate_{0.0F};
     std::shared_ptr<const TupleResidualLedger> payloads_;
     float maximum_action_distance_{std::numeric_limits<float>::max()};
+    std::optional<FactorSearchConfig> action_config_;
 };
 
 } // namespace gx1

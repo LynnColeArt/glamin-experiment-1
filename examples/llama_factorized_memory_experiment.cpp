@@ -54,11 +54,14 @@ struct MemoryInferenceResult {
 };
 
 struct ActionViewSpec {
+    std::size_t association{0};
     std::size_t entity{0};
     std::size_t relation{0};
     std::string name;
     std::string prompt;
     llama_token target_token{LLAMA_TOKEN_NULL};
+    std::vector<float> query_state;
+    std::vector<float> teacher_state;
 };
 
 void model_log(const ggml_log_level level, const char* text, void*) {
@@ -349,6 +352,23 @@ int run(const std::string& model_path) {
             entity_validation.emplace_back(entity, baseline);
             relation_validation.emplace_back(relation, baseline);
             tuple_baselines[entity][relation] = std::move(baseline);
+
+            const std::vector<std::string> development_prompts{
+                "Tell me the stored " + relations[relation] + " for " +
+                    entities[entity] + ".\nAnswer:",
+                "For " + entities[entity] + ", the " + relations[relation] +
+                    " value is",
+            };
+            for (const auto& prompt : development_prompts) {
+                auto development = capture(
+                    model.get(),
+                    vocab,
+                    prompt,
+                    hidden_dimension,
+                    target_tensor);
+                entity_validation.emplace_back(entity, development);
+                relation_validation.emplace_back(relation, std::move(development));
+            }
         }
     }
 
@@ -417,10 +437,10 @@ int run(const std::string& model_path) {
     for (const auto& prompt : relation_prompts) {
         relation_labels.push_back(prompt.factor);
     }
-    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
     std::vector<ActionViewSpec> action_view_specs;
     bool action_teachers_valid = true;
-    for (const auto& tuple : tuples) {
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
         const std::vector<std::pair<std::string, std::string>> action_views{
             {"canonical",
              tuple_prompt(entities[tuple.entity], relations[tuple.relation])},
@@ -430,47 +450,39 @@ int run(const std::string& model_path) {
             {"natural",
              "What is the " + relations[tuple.relation] + " of " +
                  entities[tuple.entity] + "?\nAnswer:"},
+            {"request",
+             "Tell me the stored " + relations[tuple.relation] + " for " +
+                 entities[tuple.entity] + ".\nAnswer:"},
+            {"continuation",
+             "For " + entities[tuple.entity] + ", the " +
+                 relations[tuple.relation] + " value is"},
         };
         for (std::size_t view = 0; view < action_views.size(); ++view) {
-            const auto query = view == 0U
-                                   ? tuple.query
+            auto query_state = view == 0U
+                                   ? tuple.query.hidden_state
                                    : capture(
                                          model.get(),
                                          vocab,
                                          action_views[view].second,
                                          hidden_dimension,
-                                         target_tensor);
-            const auto teacher = view == 0U
-                                     ? tuple.teacher
-                                     : capture(
-                                           model.get(),
-                                           vocab,
-                                           "Memory table:\n" +
-                                               relations[tuple.relation] + " of " +
-                                               entities[tuple.entity] + " =>" +
-                                               tuple.target + "\n" +
-                                               action_views[view].second,
-                                           hidden_dimension,
-                                           target_tensor);
+                                         target_tensor)
+                                         .hidden_state;
+            // Every surface form for a tuple targets the same canonical action
+            // state. The address varies with phrasing; the internal answer action
+            // deliberately does not.
+            const auto& teacher = tuple.teacher;
             const auto teacher_rank = token_rank(
                 teacher.logits, tuple.target_token);
             action_teachers_valid = action_teachers_valid && teacher_rank == 1U;
-            std::vector<float> residual(hidden_dimension, 0.0F);
-            for (std::size_t index = 0; index < residual.size(); ++index) {
-                residual[index] = teacher.hidden_state[index] -
-                                  query.hidden_state[index];
-            }
-            payloads->insert_variant(
-                tuple.entity,
-                tuple.relation,
-                query.hidden_state,
-                std::move(residual));
             action_view_specs.push_back(ActionViewSpec{
+                tuple_index,
                 tuple.entity,
                 tuple.relation,
                 action_views[view].first,
                 action_views[view].second,
                 tuple.target_token,
+                std::move(query_state),
+                teacher.hidden_state,
             });
             std::cout << "action_view=" << action_views[view].first << '/'
                       << entities[tuple.entity] << '/' << relations[tuple.relation]
@@ -479,6 +491,59 @@ int run(const std::string& model_path) {
     }
     if (!action_teachers_valid) {
         throw std::runtime_error("an action construction view lacks a rank-one teacher");
+    }
+
+    std::vector<gx1::ActivationMemoryConstructionView> action_construction;
+    for (const auto& action : action_view_specs) {
+        action_construction.push_back({
+            action.association,
+            {action.query_state},
+            action.query_state,
+            action.teacher_state,
+        });
+    }
+    std::vector<gx1::ActivationStateSequence> action_negatives{
+        {tuple_baselines[1U][1U].hidden_state},
+        {tuple_baselines[2U][0U].hidden_state},
+    };
+    for (const auto& prompt : {
+             std::string("The capital of France is"),
+             std::string("Two plus two equals"),
+             tuple_prompt("Rigel", "color"),
+             tuple_prompt("Arcturus", "temperature")}) {
+        action_negatives.push_back({capture(
+            model.get(), vocab, prompt, hidden_dimension, target_tensor).hidden_state});
+    }
+    std::vector<gx1::ActivationMemoryValidationView> action_validation;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        const auto prompt =
+            "Retrieve the " + relations[tuple.relation] + " assigned to " +
+            entities[tuple.entity] + ".\nAnswer:";
+        action_validation.push_back({
+            tuple_index,
+            {capture(
+                 model.get(), vocab, prompt, hidden_dimension, target_tensor)
+                 .hidden_state},
+        });
+    }
+    const auto action_memory = gx1::ActivationMemoryBuilder::build(
+        action_construction,
+        action_negatives,
+        action_validation,
+        gx1::ActivationMemoryBuildConfig{256U, 0.5F, false});
+    std::cout << "action_radius=" << action_memory.maximum_distance
+              << " action_negative=" << action_memory.minimum_negative_distance
+              << '\n';
+
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
+        const auto& action = action_view_specs[index];
+        payloads->insert_variant(
+            action.entity,
+            action.relation,
+            action_memory.keys[index],
+            action_memory.residuals[index]);
     }
 
     const auto make_hook = [&]() {
@@ -495,7 +560,8 @@ int run(const std::string& model_path) {
             relation_labels,
             1.0F,
             payloads,
-            1.0F);
+            action_memory.maximum_distance,
+            factor_config(action_memory));
     };
 
     bool action_views_recalled = true;
@@ -516,16 +582,15 @@ int run(const std::string& model_path) {
                   << " target_rank=" << rank << '\n';
     }
 
-    std::size_t exploratory_recalled = 0U;
-    bool exploratory_untouched = true;
+    std::size_t evaluation_recalled = 0U;
     for (const auto& tuple : tuples) {
         const std::vector<std::pair<std::string, std::string>> held_out_prompts{
-            {"request",
-             "Tell me the stored " + relations[tuple.relation] + " for " +
-                 entities[tuple.entity] + ".\nAnswer:"},
-            {"continuation",
-             "For " + entities[tuple.entity] + ", the " +
-                 relations[tuple.relation] + " value is"},
+            {"response",
+             "Please provide the " + relations[tuple.relation] + " recorded for " +
+                 entities[tuple.entity] + ".\nResponse:"},
+            {"compact",
+             "Recorded " + relations[tuple.relation] + " for " +
+                 entities[tuple.entity] + ":"},
         };
         for (const auto& held_out : held_out_prompts) {
             const auto baseline = capture(
@@ -546,12 +611,10 @@ int run(const std::string& model_path) {
                                   rank == 1U;
             const auto delta = maximum_logit_difference(
                 baseline.logits, memory.logits);
-            exploratory_untouched = exploratory_untouched &&
-                                    (!recalled ? delta <= 1.0e-5F : true);
             if (recalled) {
-                ++exploratory_recalled;
+                ++evaluation_recalled;
             }
-            std::cout << "exploratory=" << held_out.first << '/'
+            std::cout << "evaluation=" << held_out.first << '/'
                       << entities[tuple.entity] << '/' << relations[tuple.relation]
                       << " entity=" << memory.hook.entity.factor_label
                       << " entity_distance=" << memory.hook.entity.distance
@@ -597,12 +660,12 @@ int run(const std::string& model_path) {
     if (!missing_abstained) {
         throw std::runtime_error("factorized memory failed compositional abstention");
     }
-    if (!exploratory_untouched) {
-        throw std::runtime_error("unfamiliar action context changed model behavior");
+    if (evaluation_recalled != tuples.size() * 2U) {
+        throw std::runtime_error("factorized memory failed the frozen evaluation set");
     }
     std::cout << "stored_tuples=" << tuples.size()
               << " registered_action_views=" << action_view_specs.size()
-              << " exploratory_recall=" << exploratory_recalled << '/'
+              << " evaluation_recall=" << evaluation_recalled << '/'
               << tuples.size() * 2U
               << " missing_known_factor_tuples=2\n"
               << "factorized memory experiment passed\n";

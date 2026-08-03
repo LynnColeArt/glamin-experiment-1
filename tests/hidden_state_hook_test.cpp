@@ -301,8 +301,8 @@ void test_factorized_tuple_join_and_abstention() {
         0.1F,
     };
     auto payloads = std::make_shared<gx1::TupleResidualLedger>();
-    payloads->insert_variant(100U, 8U, {3.0F, 4.0F}, {2.0F, 4.0F});
-    payloads->insert_variant(100U, 8U, {30.0F, 40.0F}, {20.0F, 40.0F});
+    payloads->insert_variant(100U, 8U, {3.0F}, {2.0F, 4.0F});
+    payloads->insert_variant(100U, 8U, {30.0F}, {20.0F, 40.0F});
     gx1::FactorizedLayerMemoryHook hook(
         std::move(entity_pin),
         config,
@@ -312,7 +312,14 @@ void test_factorized_tuple_join_and_abstention() {
         {7U, 8U},
         0.5F,
         payloads,
-        0.5F);
+        0.5F,
+        gx1::FactorSearchConfig{
+            2,
+            1,
+            {1.0F, 0.0F},
+            gx1::ProjectionNormalization::none,
+            0.5F,
+        });
 
     const std::vector<std::vector<float>> candidates{
         {1.0F, 0.0F},
