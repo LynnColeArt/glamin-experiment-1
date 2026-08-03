@@ -210,12 +210,172 @@ void test_factorized_callback_joins_different_token_rows() {
     ggml_backend_free(backend);
 }
 
+void test_two_stage_factorized_callback_authorizes_then_replaces() {
+    gx1::GlaminRuntime runtime(2);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "two-stage-entities", 2, {1.0F, 0.0F, 10.0F, 0.0F});
+    const auto relation_generation = generations.mount_flat(
+        "two-stage-relations", 2, {0.0F, 1.0F, 0.0F, 10.0F});
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    const gx1::FactorSearchConfig entity_config{
+        4,
+        2,
+        {1.0F, 0.0F, 0.0F, 0.0F,
+         0.0F, 1.0F, 0.0F, 0.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    const gx1::FactorSearchConfig relation_config{
+        4,
+        2,
+        {0.0F, 0.0F, 1.0F, 0.0F,
+         0.0F, 0.0F, 0.0F, 1.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    auto residuals = std::make_shared<gx1::TupleResidualLedger>();
+    residuals->insert(100U, 8U, {2.0F, 0.0F, -2.0F, 0.0F});
+    gx1::FactorizedLayerMemoryHook memory_hook(
+        std::move(entity_pin),
+        entity_config,
+        {100U, 200U},
+        std::move(relation_pin),
+        relation_config,
+        {7U, 8U},
+        0.5F,
+        residuals);
+    auto target_states = std::make_shared<gx1::TupleTargetStateLedger>();
+    target_states->insert(100U, 8U, {9.0F, 8.0F, 7.0F, 6.0F});
+    gx1::LlamaTwoStageFactorizedGlaminHook hook(
+        std::move(memory_hook),
+        target_states,
+        "l_out-1",
+        "l_out-2");
+
+    auto* backend = ggml_backend_cpu_init();
+    if (backend == nullptr) {
+        throw std::runtime_error("failed to create the ggml CPU backend");
+    }
+    ggml_init_params parameters{};
+    parameters.mem_size = 1024U * 1024U;
+    parameters.mem_buffer = nullptr;
+    parameters.no_alloc = true;
+    auto* context = ggml_init(parameters);
+    if (context == nullptr) {
+        ggml_backend_free(backend);
+        throw std::runtime_error("failed to create the ggml tensor context");
+    }
+    auto* address_tensor = ggml_new_tensor_2d(
+        context, GGML_TYPE_F32, 4, 3);
+    ggml_set_name(address_tensor, "l_out-1");
+    auto* action_tensor = ggml_new_tensor_2d(
+        context, GGML_TYPE_F32, 4, 1);
+    ggml_set_name(action_tensor, "l_out-2");
+    auto* buffer = ggml_backend_alloc_ctx_tensors(context, backend);
+    if (buffer == nullptr) {
+        ggml_free(context);
+        ggml_backend_free(backend);
+        throw std::runtime_error("failed to allocate the ggml tensor buffer");
+    }
+
+    const std::vector<float> address_input{
+        1.0F, 0.0F, 99.0F, 99.0F,
+        99.0F, 99.0F, 0.0F, 10.0F,
+        50.0F, 50.0F, 50.0F, 50.0F,
+    };
+    const std::vector<float> action_input{4.0F, 3.0F, 2.0F, 1.0F};
+    ggml_backend_tensor_set(
+        address_tensor,
+        address_input.data(),
+        0,
+        address_input.size() * sizeof(float));
+    ggml_backend_tensor_set(
+        action_tensor,
+        action_input.data(),
+        0,
+        action_input.size() * sizeof(float));
+    expect(gx1::LlamaTwoStageFactorizedGlaminHook::evaluate(
+               address_tensor, true, &hook) &&
+               gx1::LlamaTwoStageFactorizedGlaminHook::evaluate(
+                   action_tensor, true, &hook),
+           "two-stage callback did not request both configured tensors");
+    expect(gx1::LlamaTwoStageFactorizedGlaminHook::evaluate(
+               address_tensor, false, &hook),
+           "two-stage callback rejected its authorization tensor");
+
+    std::vector<float> address_output(address_input.size());
+    ggml_backend_tensor_get(
+        address_tensor,
+        address_output.data(),
+        0,
+        address_output.size() * sizeof(float));
+    expect(address_output == address_input,
+           "two-stage authorization mutated the early tensor");
+    expect(gx1::LlamaTwoStageFactorizedGlaminHook::evaluate(
+               action_tensor, false, &hook),
+           "two-stage callback rejected its action tensor");
+    hook.throw_if_failed();
+
+    std::vector<float> action_output(action_input.size());
+    ggml_backend_tensor_get(
+        action_tensor,
+        action_output.data(),
+        0,
+        action_output.size() * sizeof(float));
+    expect(action_output == std::vector<float>({9.0F, 8.0F, 7.0F, 6.0F}),
+           "two-stage callback wrote the wrong target state");
+    expect(hook.last_result().has_value() &&
+               hook.last_result()->action_accepted &&
+               hook.last_result()->applied && hook.last_result()->gate == 1.0F,
+           "two-stage callback did not retain its applied authorization");
+    expect(hook.authorization_invocation_count() == 1U &&
+               hook.action_invocation_count() == 1U,
+           "two-stage callback invocation counts are wrong");
+
+    auto missing_input = address_input;
+    missing_input[0] = 10.0F;
+    ggml_backend_tensor_set(
+        address_tensor,
+        missing_input.data(),
+        0,
+        missing_input.size() * sizeof(float));
+    ggml_backend_tensor_set(
+        action_tensor,
+        action_input.data(),
+        0,
+        action_input.size() * sizeof(float));
+    expect(gx1::LlamaTwoStageFactorizedGlaminHook::evaluate(
+               address_tensor, false, &hook) &&
+               gx1::LlamaTwoStageFactorizedGlaminHook::evaluate(
+                   action_tensor, false, &hook),
+           "two-stage callback rejected a missing tuple probe");
+    hook.throw_if_failed();
+    ggml_backend_tensor_get(
+        action_tensor,
+        action_output.data(),
+        0,
+        action_output.size() * sizeof(float));
+    expect(action_output == action_input && hook.last_result().has_value() &&
+               !hook.last_result()->tuple_found && !hook.last_result()->applied,
+           "two-stage callback changed a missing tuple");
+
+    ggml_backend_buffer_free(buffer);
+    ggml_free(context);
+    ggml_backend_free(backend);
+}
+
 } // namespace
 
 int main() {
     try {
         test_callback_mutates_only_the_last_token();
         test_factorized_callback_joins_different_token_rows();
+        test_two_stage_factorized_callback_authorizes_then_replaces();
         std::cout << "llama.cpp Glamin tensor callback tests passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {
