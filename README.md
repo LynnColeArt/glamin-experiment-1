@@ -230,7 +230,7 @@ cd glamin-experiment-1
 
 The pinned dependencies are:
 
-- Glamin commit `1ed72f9716b8401325f75c88fd63da98af946448`
+- Glamin commit `e389252c0924b7869f5222a76530076e65c78170`
 - llama.cpp commit `ecd99d6a9acbc436bad085783bcd5d0b9ae9e9e9`
 
 Configure, build, and test:
@@ -392,6 +392,6 @@ please cite the repository and the exact commit used:
 
 ## License
 
-No software license has been declared for this experiment. Public availability
-does not by itself grant permission to copy, modify, or redistribute the work.
-Third-party submodules retain their own licenses.
+Glamin Experiment 1 is licensed under the [Apache License 2.0](LICENSE). You may
+use, modify, and distribute it under the terms of that license. Third-party
+submodules retain their own licenses.
