@@ -233,11 +233,72 @@ teacher-minus-query residual remains view-conditioned; a nearby action address
 can authorize the right tuple while its selected residual fails to transport
 the new hidden state to the intended answer state.
 
+## Two-Stage Target-State Probe
+
+The fifth probe separated authorization from action in both code and model
+depth. A new callback observes `l_out-34`, performs the entity, relation, exact
+tuple, and action-context checks, and deliberately leaves that tensor
+unchanged. If and only if all checks pass, the callback later replaces the
+final row of `l_out-35` with the tuple's canonical teacher state. The target
+state is stored in a separate tuple ledger, and a gate of `1.0` performs exact
+interpolation to that state.
+
+The comparison kept the existing early residual path as its baseline. Before
+any run, two development and two evaluation forms were written for every
+tuple. The development forms expanded factor and action calibration; the
+evaluation forms were then frozen:
+
+- `Retrieve from long-term memory: ENTITY; requested attribute REL.\nAnswer:`
+- `Archive[ENTITY] / REL / value =>`
+
+The expanded development boundary changed only the relation radius:
+
+| Space | Maximum valid distance | Nearest negative boundary |
+| --- | ---: | ---: |
+| Entity | `0.0510935` | `0.0694399` |
+| Association-signal relation | `1.12635` | `1.28097` |
+| Tuple-scoped projected action | `0.0823871` | `0.0974977` |
+
+On the 12 development prompts, both paths authorized 12/12. The residual
+baseline produced 9/12 rank-one targets; late target-state transfer produced
+12/12. All 12 tuple-matched wrong intents and both absent tuples remained exact
+no-ops through the two-tensor callback.
+
+The preregistered frozen success criterion required 12/12 correct routes and
+12/12 rank-one target-state actions. It **failed**:
+
+| Frozen measurement | Result |
+| --- | ---: |
+| Correct authorization routes | 10/12 |
+| Early residual rank-one recall | 6/12 |
+| Late target-state rank-one recall | 10/12 |
+| Late target-state recall, conditional on authorization | 10/10 |
+
+All six long-term-memory forms routed, and both mechanisms reached rank one.
+Four compact archive forms routed; the residual missed all four while the late
+target state reached rank one on all four. The two Arcturus archive prompts
+failed the entity gate at distance `0.0617394`, beyond its independently
+calibrated `0.0510935` radius. Their relation evidence was accepted, no action
+was authorized, and both paths left every logit unchanged.
+
+For every authorized frozen prompt, target-state logits reproduced the
+canonical teacher logits within a maximum absolute difference of
+`3.8147e-06`. No prompt, threshold, representation, or mechanism was changed
+after the first frozen run.
+
+This provides strong conditional evidence that action location was the payload
+boundary: once the tuple and intent are authorized, a later target state is
+substantially more form-invariant than an early view-conditioned residual. It
+does not meet the end-to-end criterion because compact entity addressing still
+fails for one entity. Full-state replacement is also an aggressive one-token
+intervention; multi-token continuation quality and general-capability effects
+remain unmeasured.
+
 ## Next Experiment
 
-The next probe should keep the frozen result untouched and replace nearest
-view-conditioned residual transfer with an action representation that can map
-a neighborhood, such as a reviewed low-rank transform or a later-layer target
-state. It should use a new development/evaluation split, retain tuple-matched
-wrong intents, and then persist and live-swap the complete factorized
-generation atomically.
+The failed archive prompts must remain frozen. A new split should test an
+association-signal or otherwise form-stable entity representation against
+compact syntax while retaining the two-stage target action and every existing
+negative control. Once end-to-end routing generalizes independently, the
+complete two-stage factorized contract should be persisted and live-swapped as
+one generation.

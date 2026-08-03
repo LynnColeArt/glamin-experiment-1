@@ -214,7 +214,7 @@ FactorizedMemoryResult FactorizedLayerMemoryHook::apply_nearest(
         entity_states, relation_states, hidden_state);
     auto result = std::move(selection.first);
     const auto& action = selection.second;
-    if (!result.action_accepted) {
+    if (!result.action_accepted || action.residual == nullptr) {
         return result;
     }
     if (action.residual->size() != hidden_state.size() ||
