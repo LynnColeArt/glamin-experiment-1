@@ -59,23 +59,79 @@ float squared_distance(
 
 std::vector<float> make_projection(
     const std::vector<std::vector<float>>& states,
-    const std::uint32_t query_dimension) {
+    const std::vector<ActivationMemoryConstructionView>& construction_views,
+    const ActivationMemoryBuildConfig& config) {
+    const auto query_dimension = config.query_dimension;
     if (states.empty() || states.front().empty() ||
         query_dimension == 0 || query_dimension > states.front().size()) {
         throw std::invalid_argument("projection construction states are invalid");
     }
     const auto hidden_dimension = states.front().size();
     std::vector<double> scores(hidden_dimension, 0.0);
-    for (std::size_t column = 0; column < hidden_dimension; ++column) {
-        double mean = 0.0;
+    if (config.projection_strategy ==
+        ActivationProjectionStrategy::association_signal) {
+        std::map<std::size_t, std::vector<const std::vector<float>*>> groups;
+        for (const auto& view : construction_views) {
+            groups[view.association].push_back(&view.query_action_state);
+        }
+        if (groups.size() < 2U) {
+            throw std::invalid_argument(
+                "association-signal projection requires multiple associations");
+        }
+        std::vector<std::vector<double>> group_means(
+            groups.size(), std::vector<double>(hidden_dimension, 0.0));
+        std::size_t group_index = 0U;
+        for (const auto& group : groups) {
+            for (const auto* state : group.second) {
+                validate_state(*state, hidden_dimension, "projection state");
+                for (std::size_t column = 0; column < hidden_dimension; ++column) {
+                    group_means[group_index][column] += (*state)[column];
+                }
+            }
+            const auto inverse_count = 1.0 / static_cast<double>(group.second.size());
+            for (auto& value : group_means[group_index]) {
+                value *= inverse_count;
+            }
+            ++group_index;
+        }
+        for (std::size_t column = 0; column < hidden_dimension; ++column) {
+            double overall_mean = 0.0;
+            for (const auto& mean : group_means) {
+                overall_mean += mean[column];
+            }
+            overall_mean /= static_cast<double>(group_means.size());
+            double between = 0.0;
+            double within = 0.0;
+            group_index = 0U;
+            for (const auto& group : groups) {
+                const auto mean_difference =
+                    group_means[group_index][column] - overall_mean;
+                between += mean_difference * mean_difference;
+                for (const auto* state : group.second) {
+                    const auto difference =
+                        static_cast<double>((*state)[column]) -
+                        group_means[group_index][column];
+                    within += difference * difference;
+                }
+                ++group_index;
+            }
+            const auto total = between + within;
+            scores[column] = total > 0.0 ? between / total : 0.0;
+        }
+    } else {
         for (const auto& state : states) {
             validate_state(state, hidden_dimension, "projection state");
-            mean += state[column];
         }
-        mean /= static_cast<double>(states.size());
-        for (const auto& state : states) {
-            const auto difference = static_cast<double>(state[column]) - mean;
-            scores[column] += difference * difference;
+        for (std::size_t column = 0; column < hidden_dimension; ++column) {
+            double mean = 0.0;
+            for (const auto& state : states) {
+                mean += state[column];
+            }
+            mean /= static_cast<double>(states.size());
+            for (const auto& state : states) {
+                const auto difference = static_cast<double>(state[column]) - mean;
+                scores[column] += difference * difference;
+            }
         }
     }
 
@@ -86,7 +142,8 @@ std::vector<float> make_projection(
         columns.begin() + static_cast<std::ptrdiff_t>(query_dimension),
         columns.end(),
         [&scores](const std::size_t left, const std::size_t right) {
-            return scores[left] > scores[right];
+            return scores[left] == scores[right] ? left < right
+                                                  : scores[left] > scores[right];
         });
 
     std::vector<float> projection(
@@ -201,6 +258,12 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         throw std::invalid_argument(
             "activation-memory gate interpolation must be in [0, 1)");
     }
+    if (config.projection_strategy != ActivationProjectionStrategy::variance &&
+        config.projection_strategy !=
+            ActivationProjectionStrategy::association_signal) {
+        throw std::invalid_argument(
+            "activation-memory projection strategy is invalid");
+    }
     const auto hidden_dimension = construction_views.front().query_action_state.size();
     if (hidden_dimension == 0 || config.query_dimension > hidden_dimension) {
         throw std::invalid_argument("activation-memory dimensions are invalid");
@@ -231,7 +294,8 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         }
     }
 
-    const auto projection = make_projection(projection_states, config.query_dimension);
+    const auto projection = make_projection(
+        projection_states, construction_views, config);
     std::vector<std::vector<std::vector<float>>> projected_views(
         construction_views.size());
     for (std::size_t index = 0; index < construction_views.size(); ++index) {

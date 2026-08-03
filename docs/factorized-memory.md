@@ -137,15 +137,58 @@ guarantee rank-one behavior for every tuple. The frozen prompts must remain an
 evaluation set; subsequent work should create a new development/evaluation
 split.
 
+## Association-Signal Relation Probe
+
+A third probe created another development/evaluation split. It added an
+`association_signal` projection selector that prefers dimensions whose relation
+identity is stable across construction views while suppressing dimensions
+dominated by within-relation form variance. Two new syntax families expanded
+relation development, and one field-oriented form expanded each tuple's action
+development. The resulting 36 registered action views all produced rank-one
+targets.
+
+This probe also added six same-entity, same-relation wrong-intent controls of
+the form “write a metaphor about these words; do not retrieve a stored value.”
+All six passed both factor gates and the exact tuple join, reached the action
+gate, and abstained with exactly unchanged logits. The two absent known-factor
+tuples also remained exact no-ops.
+
+The development boundaries were:
+
+| Space | Maximum valid distance | Nearest negative boundary |
+| --- | ---: | ---: |
+| Entity | `0.0510935` | `0.0694399` |
+| Association-signal relation | `1.09326` | `1.28097` |
+| Projected action | `0.0172099` | `0.0186327` |
+
+The frozen set then tested possessive and symbolic forms:
+
+- `From memory, give ENTITY's REL.\nValue:`
+- `ENTITY :: REL :: stored value =`
+
+Relation retrieval accepted the intended relation on **12/12** unseen prompts.
+Entity retrieval accepted 9/12; the three failures were symbolic Arcturus and
+Cygnus forms. Every one of the nine prompts reaching the exact tuple join was
+rejected by the action gate, producing **0/12 end-to-end recalls** and exact
+no-ops throughout.
+
+The distances locate the next boundary more precisely. Frozen retrieval forms
+were `0.038–0.075` from their nearest tuple-local action prototype, while the
+same-factor wrong-intent controls were farther away at `0.117–0.150`. The
+`0.0172` action radius was instead constrained by legacy calibration controls
+outside the negative class demonstrated to reach the action gate. This is
+post-evaluation evidence of a potentially usable intent gap, not authorization
+to retune against this frozen set.
+
 ## Next Experiment
 
 The next probe should:
 
-1. derive a relation representation that is less sensitive to prompt syntax,
-   using a new development corpus rather than the frozen prompts above;
-2. test whether tuple-local action targets should be prototypes or a learned
-   low-rank transform instead of one canonical residual per form;
-3. add same-factor, wrong-intent negatives that can actually reach the action
-   gate;
+1. calibrate each gate only against negatives that can reach that gate in the
+   runtime topology, using a new development corpus;
+2. compare the existing tuple-local action prototypes with a learned low-rank
+   action transform or association-signal action projection;
+3. keep same-factor wrong-intent controls as the action gate's principal
+   negative class;
 4. freeze another paraphrase evaluation set before running it; and
 5. persist and live-swap the complete factorized generation.

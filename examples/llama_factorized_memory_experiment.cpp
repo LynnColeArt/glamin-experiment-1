@@ -64,6 +64,13 @@ struct ActionViewSpec {
     std::vector<float> teacher_state;
 };
 
+struct WrongIntentSpec {
+    std::size_t entity{0};
+    std::size_t relation{0};
+    std::string prompt;
+    InferenceResult baseline;
+};
+
 void model_log(const ggml_log_level level, const char* text, void*) {
     if (level == GGML_LOG_LEVEL_ERROR) {
         std::fputs(text, stderr);
@@ -204,7 +211,8 @@ std::string tuple_prompt(const std::string& entity, const std::string& relation)
 gx1::ActivationMemoryBuildResult build_factor(
     const std::vector<FactorPrompt>& prompts,
     const std::vector<InferenceResult>& negatives,
-    const std::vector<std::pair<std::size_t, InferenceResult>>& validation) {
+    const std::vector<std::pair<std::size_t, InferenceResult>>& validation,
+    const gx1::ActivationProjectionStrategy projection_strategy) {
     std::vector<gx1::ActivationMemoryConstructionView> construction;
     for (const auto& prompt : prompts) {
         construction.push_back({
@@ -226,7 +234,12 @@ gx1::ActivationMemoryBuildResult build_factor(
         construction,
         calibration_negatives,
         validation_views,
-        gx1::ActivationMemoryBuildConfig{256U, 0.5F, false});
+        gx1::ActivationMemoryBuildConfig{
+            256U,
+            0.5F,
+            false,
+            projection_strategy,
+        });
 }
 
 gx1::FactorSearchConfig factor_config(
@@ -358,15 +371,24 @@ int run(const std::string& model_path) {
                     entities[entity] + ".\nAnswer:",
                 "For " + entities[entity] + ", the " + relations[relation] +
                     " value is",
+                "Stored-value lookup\nObject = " + entities[entity] +
+                    "\nProperty = " + relations[relation] + "\nValue =",
+                entities[entity] + " has which memorized " +
+                    relations[relation] + "?\nValue:",
             };
-            for (const auto& prompt : development_prompts) {
+            for (std::size_t development_index = 0;
+                 development_index < development_prompts.size();
+                 ++development_index) {
+                const auto& prompt = development_prompts[development_index];
                 auto development = capture(
                     model.get(),
                     vocab,
                     prompt,
                     hidden_dimension,
                     target_tensor);
-                entity_validation.emplace_back(entity, development);
+                if (development_index < 2U) {
+                    entity_validation.emplace_back(entity, development);
+                }
                 relation_validation.emplace_back(relation, std::move(development));
             }
         }
@@ -392,9 +414,15 @@ int run(const std::string& model_path) {
     }
 
     const auto entity_memory = build_factor(
-        entity_prompts, entity_negatives, entity_validation);
+        entity_prompts,
+        entity_negatives,
+        entity_validation,
+        gx1::ActivationProjectionStrategy::variance);
     const auto relation_memory = build_factor(
-        relation_prompts, relation_negatives, relation_validation);
+        relation_prompts,
+        relation_negatives,
+        relation_validation,
+        gx1::ActivationProjectionStrategy::association_signal);
     std::cout << "entity_radius=" << entity_memory.maximum_distance
               << " entity_negative=" << entity_memory.minimum_negative_distance
               << " relation_radius=" << relation_memory.maximum_distance
@@ -456,6 +484,9 @@ int run(const std::string& model_path) {
             {"continuation",
              "For " + entities[tuple.entity] + ", the " +
                  relations[tuple.relation] + " value is"},
+            {"fields",
+             "Stored-value lookup\nObject = " + entities[tuple.entity] +
+                 "\nProperty = " + relations[tuple.relation] + "\nValue ="},
         };
         for (std::size_t view = 0; view < action_views.size(); ++view) {
             auto query_state = view == 0U
@@ -513,6 +544,23 @@ int run(const std::string& model_path) {
              tuple_prompt("Arcturus", "temperature")}) {
         action_negatives.push_back({capture(
             model.get(), vocab, prompt, hidden_dimension, target_tensor).hidden_state});
+    }
+    std::vector<WrongIntentSpec> wrong_intents;
+    for (const auto& tuple : tuples) {
+        const auto prompt =
+            "Entity: " + entities[tuple.entity] + "\nRelation: " +
+            relations[tuple.relation] +
+            "\nInstruction: Write a metaphor about these words; do not retrieve "
+            "a stored value.";
+        auto baseline = capture(
+            model.get(), vocab, prompt, hidden_dimension, target_tensor);
+        action_negatives.push_back({baseline.hidden_state});
+        wrong_intents.push_back({
+            tuple.entity,
+            tuple.relation,
+            prompt,
+            std::move(baseline),
+        });
     }
     std::vector<gx1::ActivationMemoryValidationView> action_validation;
     for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
@@ -581,16 +629,76 @@ int run(const std::string& model_path) {
                   << " applied=" << (memory.hook.applied ? "yes" : "no")
                   << " target_rank=" << rank << '\n';
     }
+    if (!action_views_recalled) {
+        throw std::runtime_error("factorized memory failed a registered action view");
+    }
+
+    bool wrong_intents_abstained = true;
+    for (const auto& negative : wrong_intents) {
+        const auto memory = infer_with_memory(
+            model.get(), vocab, negative.prompt, make_hook(), target_tensor);
+        const auto delta = maximum_logit_difference(
+            negative.baseline.logits, memory.logits);
+        const auto reached_action_gate =
+            memory.hook.entity.accepted && memory.hook.relation.accepted &&
+            memory.hook.tuple_found;
+        wrong_intents_abstained =
+            wrong_intents_abstained && reached_action_gate &&
+            !memory.hook.action_accepted && !memory.hook.applied &&
+            delta <= 1.0e-5F;
+        std::cout << "wrong_intent=" << entities[negative.entity] << '/'
+                  << relations[negative.relation]
+                  << " factors_accepted="
+                  << (memory.hook.entity.accepted && memory.hook.relation.accepted
+                          ? "yes"
+                          : "no")
+                  << " tuple_found="
+                  << (memory.hook.tuple_found ? "yes" : "no")
+                  << " action_distance=" << memory.hook.action_distance
+                  << " applied=" << (memory.hook.applied ? "yes" : "no")
+                  << " max_logit_delta=" << delta << '\n';
+    }
+    if (!wrong_intents_abstained) {
+        throw std::runtime_error(
+            "same-factor wrong-intent development gate failed");
+    }
+
+    bool missing_abstained = true;
+    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
+                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
+        const auto& baseline = tuple_baselines[missing.first][missing.second];
+        const auto memory = infer_with_memory(
+            model.get(),
+            vocab,
+            tuple_prompt(entities[missing.first], relations[missing.second]),
+            make_hook(),
+            target_tensor);
+        const auto delta = maximum_logit_difference(baseline.logits, memory.logits);
+        missing_abstained = missing_abstained && memory.hook.entity.accepted &&
+                            memory.hook.relation.accepted && !memory.hook.tuple_found &&
+                            !memory.hook.applied && delta <= 1.0e-5F;
+        std::cout << "missing_tuple=" << entities[missing.first] << '/'
+                  << relations[missing.second]
+                  << " factors_accepted="
+                  << (memory.hook.entity.accepted && memory.hook.relation.accepted
+                          ? "yes"
+                          : "no")
+                  << " applied=" << (memory.hook.applied ? "yes" : "no")
+                  << " max_logit_delta=" << delta << '\n';
+    }
+    if (!missing_abstained) {
+        throw std::runtime_error("factorized memory failed compositional abstention");
+    }
 
     std::size_t evaluation_recalled = 0U;
     for (const auto& tuple : tuples) {
         const std::vector<std::pair<std::string, std::string>> held_out_prompts{
-            {"response",
-             "Please provide the " + relations[tuple.relation] + " recorded for " +
-                 entities[tuple.entity] + ".\nResponse:"},
-            {"compact",
-             "Recorded " + relations[tuple.relation] + " for " +
-                 entities[tuple.entity] + ":"},
+            {"possessive",
+             "From memory, give " + entities[tuple.entity] + "'s " +
+                 relations[tuple.relation] + ".\nValue:"},
+            {"symbolic",
+             entities[tuple.entity] + " :: " + relations[tuple.relation] +
+                 " :: stored value ="},
         };
         for (const auto& held_out : held_out_prompts) {
             const auto baseline = capture(
@@ -630,36 +738,6 @@ int run(const std::string& model_path) {
         }
     }
 
-    bool missing_abstained = true;
-    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
-                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
-        const auto& baseline = tuple_baselines[missing.first][missing.second];
-        const auto memory = infer_with_memory(
-            model.get(),
-            vocab,
-            tuple_prompt(entities[missing.first], relations[missing.second]),
-            make_hook(),
-            target_tensor);
-        const auto delta = maximum_logit_difference(baseline.logits, memory.logits);
-        missing_abstained = missing_abstained && memory.hook.entity.accepted &&
-                            memory.hook.relation.accepted && !memory.hook.tuple_found &&
-                            !memory.hook.applied && delta <= 1.0e-5F;
-        std::cout << "missing_tuple=" << entities[missing.first] << '/'
-                  << relations[missing.second]
-                  << " factors_accepted="
-                  << (memory.hook.entity.accepted && memory.hook.relation.accepted
-                          ? "yes"
-                          : "no")
-                  << " applied=" << (memory.hook.applied ? "yes" : "no")
-                  << " max_logit_delta=" << delta << '\n';
-    }
-
-    if (!action_views_recalled) {
-        throw std::runtime_error("factorized memory failed a registered action view");
-    }
-    if (!missing_abstained) {
-        throw std::runtime_error("factorized memory failed compositional abstention");
-    }
     if (evaluation_recalled != tuples.size() * 2U) {
         throw std::runtime_error("factorized memory failed the frozen evaluation set");
     }

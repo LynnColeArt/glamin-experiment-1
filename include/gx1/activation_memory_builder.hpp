@@ -27,10 +27,17 @@ struct ActivationMemorySelection {
     float distance{0.0F};
 };
 
+enum class ActivationProjectionStrategy : std::uint8_t {
+    variance = 0,
+    association_signal = 1,
+};
+
 struct ActivationMemoryBuildConfig {
     std::uint32_t query_dimension{0};
     float gate_interpolation{0.5F};
     bool include_cross_association_keys_in_gate{true};
+    ActivationProjectionStrategy projection_strategy{
+        ActivationProjectionStrategy::variance};
 };
 
 struct ActivationMemoryBuildResult {

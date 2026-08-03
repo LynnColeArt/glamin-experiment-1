@@ -66,6 +66,8 @@ A rollback reproduced the baseline logits exactly in the same process.
   contextual action-distance gate inside inference.
 - [x] Probe projected relation/action addressing against a frozen paraphrase
   set; record partial generalization (4/12) and the compact-syntax boundary.
+- [x] Generalize association-signal relation evidence across a second frozen
+  set (12/12) and isolate action-gate calibration as the end-to-end boundary.
 - [ ] Generalize relation and action-context representations to frozen,
   previously unseen paraphrase sets.
 - [ ] Persist and live-swap the complete factorized generation atomically.

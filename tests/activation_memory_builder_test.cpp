@@ -92,11 +92,64 @@ void test_multi_view_key_construction_and_gate() {
     }
 }
 
+void test_association_signal_ignores_high_variance_form_noise() {
+    const std::vector<gx1::ActivationMemoryConstructionView> views{
+        {0U, {{1.0F, 0.0F, -100.0F}}, {1.0F, 0.0F, -100.0F}, {2.0F, 0.0F, 0.0F}},
+        {0U, {{1.0F, 0.0F, 100.0F}}, {1.0F, 0.0F, 100.0F}, {2.0F, 0.0F, 0.0F}},
+        {1U, {{0.0F, 1.0F, -100.0F}}, {0.0F, 1.0F, -100.0F}, {0.0F, 2.0F, 0.0F}},
+        {1U, {{0.0F, 1.0F, 100.0F}}, {0.0F, 1.0F, 100.0F}, {0.0F, 2.0F, 0.0F}},
+    };
+    const std::vector<gx1::ActivationStateSequence> negatives{
+        {{-1.0F, -1.0F, 500.0F}},
+    };
+    const std::vector<gx1::ActivationMemoryValidationView> validation{
+        {0U, {{1.0F, 0.0F, 50.0F}}},
+        {1U, {{0.0F, 1.0F, -50.0F}}},
+    };
+
+    const auto result = gx1::ActivationMemoryBuilder::build(
+        views,
+        negatives,
+        validation,
+        gx1::ActivationMemoryBuildConfig{
+            2U,
+            0.5F,
+            true,
+            gx1::ActivationProjectionStrategy::association_signal,
+        });
+    for (std::size_t row = 0; row < 2U; ++row) {
+        expect(result.input_projection[row * 3U + 2U] == 0.0F,
+               "association projection retained form-only variance");
+    }
+    expect(result.validation_selections[0].distance == 0.0F &&
+               result.validation_selections[1].distance == 0.0F,
+           "association projection did not collapse held-out form noise");
+
+    bool invalid_strategy_rejected = false;
+    try {
+        static_cast<void>(gx1::ActivationMemoryBuilder::build(
+            views,
+            negatives,
+            validation,
+            gx1::ActivationMemoryBuildConfig{
+                2U,
+                0.5F,
+                true,
+                static_cast<gx1::ActivationProjectionStrategy>(255U),
+            }));
+    } catch (const std::invalid_argument&) {
+        invalid_strategy_rejected = true;
+    }
+    expect(invalid_strategy_rejected,
+           "builder accepted an unknown projection strategy");
+}
+
 } // namespace
 
 int main() {
     try {
         test_multi_view_key_construction_and_gate();
+        test_association_signal_ignores_high_variance_form_noise();
         std::cout << "activation-memory builder tests passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

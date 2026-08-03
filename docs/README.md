@@ -47,7 +47,10 @@ retrieves entity and relation evidence, authorizes exact tuples, and selects a
 bounded contextual action. Its projected-action follow-up passes all 30
 registered contexts at rank one and preserves exact abstention for two missing
 known-factor tuples. A frozen unseen-paraphrase set produced 4/12 rank-one
-recalls, exposing compact relation syntax and two action-transfer failures.
-Broad multi-relation paraphrase generalization, persisted factorized artifacts,
-trained adapters, durable traces, and external procedural actions remain future
-work.
+recalls. A subsequent association-signal relation projection accepted the
+intended relation on 12/12 new frozen prompts, while its deliberately strict
+action gate produced 0/12 end-to-end recalls. Six tuple-matched wrong-intent
+controls reached that gate and abstained exactly, exposing gate-local
+calibration as the next boundary. Broad action-form generalization, persisted
+factorized artifacts, trained adapters, durable traces, and external procedural
+actions remain future work.

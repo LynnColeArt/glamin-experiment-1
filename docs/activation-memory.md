@@ -19,14 +19,22 @@ address       = nearest memory over all projected candidate states
 view action   = teacher state - query state
 ```
 
-Projection dimensions are selected by variance across every token state in the
-construction prompts and calibration negatives. For each construction view,
-the writer selects the token state with the greatest separation from all token
-states belonging to other associations and controls. Views belonging to the
-same association are linked logically but are not forced into one activation
-cluster: lookup syntax and natural language may occupy different local
-manifolds. Each key retains its view-conditioned teacher-minus-query action.
-No entity string or token position is given to key derivation.
+The builder supports two projection selectors. The original `variance`
+strategy selects dimensions by variance across every token state in the
+construction prompts and calibration negatives. The later
+`association_signal` strategy scores each dimension by between-association
+variation divided by total between-plus-within-association variation in the
+construction query states. It therefore favors stable association identity
+over high-variance surface-form noise. Both produce a reviewed axis-selection
+matrix rather than changing model weights.
+
+For each construction view, the writer selects the token state with the
+greatest separation from all token states belonging to other associations and
+controls. Views belonging to the same association are linked logically but are
+not forced into one activation cluster: lookup syntax and natural language may
+occupy different local manifolds. Each key retains its view-conditioned
+teacher-minus-query action. No entity string or token position is given to key
+derivation.
 
 The complete generation is persisted as one `gx1-hook-v1` artifact and searched
 through Glamin. The artifact now hash-binds `all_token_rows` as its address
