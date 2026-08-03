@@ -33,6 +33,36 @@ std::size_t projection_size(
 
 } // namespace
 
+std::vector<std::vector<float>> prefix_mean_states(
+    const std::vector<std::vector<float>>& states) {
+    if (states.empty() || states.front().empty()) {
+        throw std::invalid_argument(
+            "prefix-mean addressing requires nonempty hidden states");
+    }
+    const auto hidden_dimension = states.front().size();
+    std::vector<double> running_sum(hidden_dimension, 0.0);
+    std::vector<std::vector<float>> means;
+    means.reserve(states.size());
+    for (std::size_t row = 0; row < states.size(); ++row) {
+        if (states[row].size() != hidden_dimension || !all_finite(states[row])) {
+            throw std::invalid_argument(
+                "prefix-mean addressing states have inconsistent shapes or values");
+        }
+        std::vector<float> mean(hidden_dimension, 0.0F);
+        for (std::size_t column = 0; column < hidden_dimension; ++column) {
+            running_sum[column] += static_cast<double>(states[row][column]);
+            mean[column] = static_cast<float>(
+                running_sum[column] / static_cast<double>(row + 1U));
+        }
+        if (!all_finite(mean)) {
+            throw std::runtime_error(
+                "prefix-mean addressing produced non-finite values");
+        }
+        means.push_back(std::move(mean));
+    }
+    return means;
+}
+
 void ResidualPayloadLedger::insert(
     const GlaminGenerationId generation,
     const std::uint64_t label,

@@ -56,8 +56,10 @@ values, unique labels, and safe local file names before asking Glamin to mount
 anything.
 
 Version 1 binds both the tensor that contains the address and action rows and an
-address-selection policy. The implemented policies are `last_token` and
-`all_token_rows`. A pinned hook exposes that policy to the llama.cpp adapter, so
+address-selection policy. The implemented policies are `last_token`,
+`all_token_rows`, and `prefix_mean_rows`. The last policy scans cumulative
+means of the hidden-state rows so each candidate represents its full prefix. A
+pinned hook exposes the selected policy to the llama.cpp adapter, so
 the natural-question experiment's scanner is selected by the mounted generation
 rather than an unrecorded caller convention. Future learned selectors will need
 their own versioned, hash-bound parameters.

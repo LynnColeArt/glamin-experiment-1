@@ -88,12 +88,12 @@ LlamaGlaminHook::LlamaGlaminHook(
     : hook_(std::move(hook)),
       target_tensor_(std::move(target_tensor)),
       address_token_index_(address_token_index),
-      scan_all_token_rows_(
-          hook_.address_selection() == AddressSelectionPolicy::all_token_rows) {
+      address_selection_(hook_.address_selection()) {
     if (target_tensor_.empty() || target_tensor_.find('\0') != std::string::npos) {
         throw std::invalid_argument("llama.cpp hook target tensor is invalid");
     }
-    if (address_token_index_ && scan_all_token_rows_) {
+    if (address_token_index_ &&
+        address_selection_ != AddressSelectionPolicy::last_token) {
         throw std::invalid_argument(
             "llama.cpp hook cannot combine an explicit address with token scanning");
     }
@@ -157,9 +157,13 @@ bool LlamaGlaminHook::evaluate_tensor(ggml_tensor* tensor, const bool ask) {
     }
     const auto last_token = last_token_index(tensor);
     auto hidden_state = read_hidden_state(tensor, hook_.hidden_dimension(), last_token);
-    if (scan_all_token_rows_) {
-        last_result_ = hook_.apply_nearest(
-            read_all_hidden_states(tensor, hook_.hidden_dimension()), hidden_state);
+    if (address_selection_ != AddressSelectionPolicy::last_token) {
+        auto address_states = read_all_hidden_states(
+            tensor, hook_.hidden_dimension());
+        if (address_selection_ == AddressSelectionPolicy::prefix_mean_rows) {
+            address_states = prefix_mean_states(address_states);
+        }
+        last_result_ = hook_.apply_nearest(address_states, hidden_state);
     } else {
         const auto address_token = address_token_index_.value_or(last_token);
         const auto address_state = address_token == last_token

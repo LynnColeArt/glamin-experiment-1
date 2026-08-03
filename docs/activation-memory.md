@@ -117,6 +117,9 @@ row while still delivering the residual reliably through the final block.
 - Robust threshold calibration beyond the small 12-negative calibration set.
 - Large-memory scaling or resistance to key collisions.
 
-The next experiment should add multiple relations, batch the all-token searches,
-and measure retrieval, abstention, answer quality, and latency as neighborhood
-density and linguistic freedom increase.
+The subsequent [multi-relation probe](multi-relation-probe.md) tested overlapping
+entity–relation tuples and found that neither absolute distance nor grouped
+nearest-competitor margin safely separated valid paraphrases from unknown
+tuples. The next design should factor entity and relation evidence before
+joining them, then batch the resulting searches and measure behavior as
+neighborhood density and linguistic freedom increase.

@@ -26,7 +26,7 @@ void test_callback_mutates_only_the_last_token() {
     gx1::GlaminRuntime runtime(2);
     gx1::GlaminGenerationStore generations(runtime);
     const auto generation = generations.mount_flat(
-        "tensor-hook", 2, {1.0F, 2.0F, 100.0F, 100.0F});
+        "tensor-hook", 2, {5.5F, 11.0F, 100.0F, 100.0F});
     generations.activate(generation);
 
     auto payloads = std::make_shared<gx1::ResidualPayloadLedger>();
@@ -38,7 +38,7 @@ void test_callback_mutates_only_the_last_token() {
         0.5F,
         gx1::ProjectionNormalization::none,
     };
-    config.address_selection = gx1::AddressSelectionPolicy::all_token_rows;
+    config.address_selection = gx1::AddressSelectionPolicy::prefix_mean_rows;
     gx1::FixedLayerMemoryHook memory_hook(
         generations.pin_active(),
         std::move(config),
@@ -89,8 +89,8 @@ void test_callback_mutates_only_the_last_token() {
         hook.last_result()->generation == generation,
         "callback recorded the wrong generation");
     expect(
-        hook.last_result()->address_candidate == 0U,
-        "callback selected the wrong automatic address row");
+        hook.last_result()->address_candidate == 1U,
+        "callback selected the wrong prefix-mean address row");
 
     ggml_backend_tensor_set(tensor, input.data(), 0, input.size() * sizeof(float));
     gx1::LlamaHiddenStateCapture capture(4, "l_out-1", 0U, true);

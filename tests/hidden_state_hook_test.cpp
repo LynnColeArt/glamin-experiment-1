@@ -34,7 +34,9 @@ public:
     HookArtifactFixture(
         std::string name,
         const float residual_sign,
-        const std::size_t glamin_vector_count = 2)
+        const std::size_t glamin_vector_count = 2,
+        const gx1::AddressSelectionPolicy address_selection =
+            gx1::AddressSelectionPolicy::all_token_rows)
         : directory_(std::filesystem::current_path() / std::move(name)) {
         std::error_code error;
         std::filesystem::remove_all(directory_, error);
@@ -89,7 +91,7 @@ public:
         spec.query_normalization = gx1::ProjectionNormalization::none;
         spec.gate = 0.5F;
         spec.maximum_distance = 0.75F;
-        spec.address_selection = gx1::AddressSelectionPolicy::all_token_rows;
+        spec.address_selection = address_selection;
         spec.input_projection = {1.0F, 0.0F, 0.0F, 1.0F};
         spec.residual_labels = {0, 1};
         spec.residuals = {
@@ -262,6 +264,21 @@ void test_automatic_nearest_address_candidate() {
            "automatic addressing applied the wrong residual payload");
 }
 
+void test_prefix_mean_address_candidates() {
+    const auto means = gx1::prefix_mean_states({
+        {2.0F, 4.0F},
+        {4.0F, 8.0F},
+        {6.0F, 12.0F},
+    });
+    expect(
+        means == std::vector<std::vector<float>>({
+                     {2.0F, 4.0F},
+                     {3.0F, 6.0F},
+                     {4.0F, 8.0F},
+                 }),
+        "prefix-mean addressing returned the wrong cumulative states");
+}
+
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(
         gx1::sha256_text("abc") ==
@@ -270,6 +287,11 @@ void test_persistent_hook_artifact_atomic_activation_and_corruption() {
 
     HookArtifactFixture fixture_a("gx1_hook_artifact_a", 1.0F);
     HookArtifactFixture fixture_b("gx1_hook_artifact_b", -1.0F);
+    HookArtifactFixture fixture_prefix(
+        "gx1_hook_artifact_prefix",
+        1.0F,
+        2U,
+        gx1::AddressSelectionPolicy::prefix_mean_rows);
     const auto expected_model = HookArtifactFixture::model_contract();
     const auto loaded = gx1::load_hook_artifact(fixture_a.path(), expected_model);
     expect(loaded.model.target_tensor == "l_out-1", "loaded target tensor mismatch");
@@ -279,6 +301,11 @@ void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(loaded.hook_config.address_selection ==
                gx1::AddressSelectionPolicy::all_token_rows,
            "loaded address-selection policy mismatch");
+    const auto loaded_prefix = gx1::load_hook_artifact(
+        fixture_prefix.path(), expected_model);
+    expect(loaded_prefix.hook_config.address_selection ==
+               gx1::AddressSelectionPolicy::prefix_mean_rows,
+           "prefix-mean address-selection policy did not round trip");
     expect(loaded.residual_labels == std::vector<std::uint64_t>({0, 1}),
            "loaded residual labels mismatch");
 
@@ -369,6 +396,7 @@ int main() {
         test_l2_projection_and_missing_payload_fail_closed();
         test_memory_distance_abstention();
         test_automatic_nearest_address_candidate();
+        test_prefix_mean_address_candidates();
         test_persistent_hook_artifact_atomic_activation_and_corruption();
         std::cout << "hidden-state Glamin hook tests passed\n";
         return EXIT_SUCCESS;

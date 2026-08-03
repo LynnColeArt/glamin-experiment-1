@@ -60,7 +60,9 @@ A rollback reproduced the baseline logits exactly in the same process.
 - [x] Derive paired-view key positions without entity annotations.
 - [x] Generalize construction to three views and eight associations with
   held-out retrieval and natural-question phrasing.
-- [ ] Evaluate multiple relations and less constrained semantic phrasing.
+- [x] Probe two overlapping relations per entity and record the single-vector
+  addressing and abstention boundary.
+- [ ] Implement factorized entity/relation evidence and a gated tuple join.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and
   exact abstention on a 16-prompt negative set.

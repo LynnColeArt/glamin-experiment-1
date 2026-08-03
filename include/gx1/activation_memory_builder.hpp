@@ -30,6 +30,7 @@ struct ActivationMemorySelection {
 struct ActivationMemoryBuildConfig {
     std::uint32_t query_dimension{0};
     float gate_interpolation{0.5F};
+    bool include_cross_association_keys_in_gate{true};
 };
 
 struct ActivationMemoryBuildResult {
@@ -45,6 +46,8 @@ struct ActivationMemoryBuildResult {
     float maximum_validation_distance{0.0F};
     float minimum_negative_distance{0.0F};
     float maximum_distance{0.0F};
+    float minimum_validation_group_margin{0.0F};
+    float maximum_negative_group_margin{0.0F};
 };
 
 class ActivationMemoryBuilder final {

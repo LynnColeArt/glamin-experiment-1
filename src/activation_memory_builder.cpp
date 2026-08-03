@@ -147,26 +147,41 @@ ActivationMemorySelection nearest_key(
     return nearest;
 }
 
-ActivationMemorySelection nearest_candidate(
+std::pair<ActivationMemorySelection, float> nearest_candidate_grouped(
     const ActivationStateSequence& states,
     const std::vector<float>& projection,
     const std::uint32_t query_dimension,
-    const std::vector<std::vector<float>>& keys) {
-    if (states.empty()) {
-        throw std::invalid_argument("automatic addressing requires candidate states");
+    const std::vector<std::vector<float>>& keys,
+    const std::vector<std::size_t>& key_groups) {
+    if (keys.size() != key_groups.size() || keys.empty()) {
+        throw std::invalid_argument("grouped memory keys are invalid");
     }
-    auto nearest = nearest_key(
-        project_normalized(states[0], projection, query_dimension), keys, 0U);
+    const auto nearest_for_state = [&keys, &key_groups](
+                                       const std::vector<float>& query,
+                                       const std::size_t candidate) {
+        const auto nearest = nearest_key(query, keys, candidate);
+        auto competitor = std::numeric_limits<float>::max();
+        for (std::size_t key = 0; key < keys.size(); ++key) {
+            if (key_groups[key] != key_groups[nearest.key]) {
+                competitor = std::min(
+                    competitor, squared_distance(query, keys[key]));
+            }
+        }
+        return std::pair<ActivationMemorySelection, float>{
+            nearest, competitor - nearest.distance};
+    };
+
+    auto grouped = nearest_for_state(
+        project_normalized(states.front(), projection, query_dimension), 0U);
     for (std::size_t candidate = 1; candidate < states.size(); ++candidate) {
-        auto selection = nearest_key(
+        auto current = nearest_for_state(
             project_normalized(states[candidate], projection, query_dimension),
-            keys,
             candidate);
-        if (selection.distance < nearest.distance) {
-            nearest = selection;
+        if (current.first.distance < grouped.first.distance) {
+            grouped = std::move(current);
         }
     }
-    return nearest;
+    return grouped;
 }
 
 } // namespace
@@ -241,6 +256,10 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
     result.selected_candidates.resize(construction_views.size(), 0U);
     result.residuals.resize(
         construction_views.size(), std::vector<float>(hidden_dimension, 0.0F));
+    std::vector<std::size_t> key_groups(construction_views.size(), 0U);
+    for (std::size_t index = 0; index < construction_views.size(); ++index) {
+        key_groups[index] = construction_views[index].association;
+    }
 
     for (const auto& association : associations) {
         const auto& members = association.second;
@@ -300,31 +319,44 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
     }
 
     auto minimum_negative = std::numeric_limits<float>::max();
-    for (std::size_t left = 0; left < result.keys.size(); ++left) {
-        for (std::size_t right = left + 1U; right < result.keys.size(); ++right) {
-            if (construction_views[left].association !=
-                construction_views[right].association) {
-                minimum_negative = std::min(
-                    minimum_negative,
-                    squared_distance(result.keys[left], result.keys[right]));
+    float maximum_negative_group_margin = 0.0F;
+    if (config.include_cross_association_keys_in_gate) {
+        for (std::size_t left = 0; left < result.keys.size(); ++left) {
+            for (std::size_t right = left + 1U; right < result.keys.size(); ++right) {
+                if (construction_views[left].association !=
+                    construction_views[right].association) {
+                    minimum_negative = std::min(
+                        minimum_negative,
+                        squared_distance(result.keys[left], result.keys[right]));
+                }
             }
         }
     }
     for (const auto& negative : calibration_negatives) {
-        const auto selection = nearest_candidate(
-            negative, projection, config.query_dimension, result.keys);
+        const auto grouped = nearest_candidate_grouped(
+            negative,
+            projection,
+            config.query_dimension,
+            result.keys,
+            key_groups);
+        const auto& selection = grouped.first;
         result.negative_selections.push_back(selection);
         minimum_negative = std::min(minimum_negative, selection.distance);
+        maximum_negative_group_margin = std::max(
+            maximum_negative_group_margin, grouped.second);
     }
 
     float maximum_validation = 0.0F;
+    auto minimum_validation_group_margin = std::numeric_limits<float>::max();
     for (std::size_t index = 0; index < validation_views.size(); ++index) {
         const auto& validation = validation_views[index];
-        const auto selection = nearest_candidate(
+        const auto grouped = nearest_candidate_grouped(
             validation.address_candidates,
             projection,
             config.query_dimension,
-            result.keys);
+            result.keys,
+            key_groups);
+        const auto& selection = grouped.first;
         if (construction_views[selection.key].association != validation.association) {
             throw std::runtime_error(
                 "validation view " + std::to_string(index) + " for association " +
@@ -335,17 +367,27 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         }
         result.validation_selections.push_back(selection);
         maximum_validation = std::max(maximum_validation, selection.distance);
+        minimum_validation_group_margin = std::min(
+            minimum_validation_group_margin, grouped.second);
     }
     if (!(maximum_validation < minimum_negative) ||
         !std::isfinite(maximum_validation) || !std::isfinite(minimum_negative)) {
         throw std::runtime_error(
-            "memory neighborhoods do not separate validation from negatives");
+            "memory neighborhoods do not separate validation from negatives: "
+            "maximum validation " + std::to_string(maximum_validation) +
+            ", minimum negative " + std::to_string(minimum_negative) +
+            ", minimum validation group margin " +
+            std::to_string(minimum_validation_group_margin) +
+            ", maximum negative group margin " +
+            std::to_string(maximum_negative_group_margin));
     }
     result.maximum_validation_distance = maximum_validation;
     result.minimum_negative_distance = minimum_negative;
     result.maximum_distance = maximum_validation +
                               config.gate_interpolation *
                                   (minimum_negative - maximum_validation);
+    result.minimum_validation_group_margin = minimum_validation_group_margin;
+    result.maximum_negative_group_margin = maximum_negative_group_margin;
     return result;
 }
 

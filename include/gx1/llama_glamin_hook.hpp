@@ -43,7 +43,7 @@ private:
     std::string error_;
     std::optional<HiddenStateHookResult> last_result_;
     std::optional<std::size_t> address_token_index_;
-    bool scan_all_token_rows_{false};
+    AddressSelectionPolicy address_selection_{AddressSelectionPolicy::last_token};
     std::size_t invocation_count_{0};
 };
 

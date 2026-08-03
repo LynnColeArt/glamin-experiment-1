@@ -231,6 +231,8 @@ std::string address_selection_name(const AddressSelectionPolicy policy) {
         return "last_token";
     case AddressSelectionPolicy::all_token_rows:
         return "all_token_rows";
+    case AddressSelectionPolicy::prefix_mean_rows:
+        return "prefix_mean_rows";
     }
     throw std::invalid_argument("hook artifact address selection is unsupported");
 }
@@ -241,6 +243,9 @@ AddressSelectionPolicy parse_address_selection(const std::string& value) {
     }
     if (value == "all_token_rows") {
         return AddressSelectionPolicy::all_token_rows;
+    }
+    if (value == "prefix_mean_rows") {
+        return AddressSelectionPolicy::prefix_mean_rows;
     }
     throw std::invalid_argument("hook artifact address selection is unsupported");
 }

@@ -20,7 +20,11 @@ enum class ProjectionNormalization {
 enum class AddressSelectionPolicy {
     last_token,
     all_token_rows,
+    prefix_mean_rows,
 };
+
+[[nodiscard]] std::vector<std::vector<float>> prefix_mean_states(
+    const std::vector<std::vector<float>>& states);
 
 struct HiddenStateHookConfig {
     std::uint32_t hidden_dimension{0};

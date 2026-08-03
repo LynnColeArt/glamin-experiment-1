@@ -20,6 +20,8 @@
   projection, Glamin space, residual, publication, and pinning contract.
 - [Activation-derived associative memory](activation-memory.md) records the
   scaled eight-association held-out recall and abstention experiment.
+- [Multi-relation addressing probe](multi-relation-probe.md) records the
+  calibrated boundary exposed by overlapping entity–relation tuples.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
