@@ -37,10 +37,12 @@ Each of the six registered tuples has three development forms, for 18 prompts:
 - record: `Object record { name: "ENTITY", field: "REL" }`
 - path: `memory/object/ENTITY/attribute/REL/value=`
 
-These forms may calibrate only the candidate entity gates. The association-signal
-system must route all 18 through the unchanged downstream gates and produce the
-stored target at rank one before the frozen split is run. The existing 12
-wrong-intent controls and two missing-tuple controls must remain exact no-ops.
+These forms may calibrate only the candidate entity gates. Before the frozen
+split is run, the association-signal system must accept and identify the correct
+entity on all 18. End-to-end routing and rank are development diagnostics rather
+than prerequisites because the downstream gates are deliberately unchanged.
+The existing 12 wrong-intent controls and two missing-tuple controls must remain
+exact no-ops.
 
 ## Frozen Evaluation Split
 

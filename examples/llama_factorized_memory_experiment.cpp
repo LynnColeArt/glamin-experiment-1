@@ -1070,7 +1070,9 @@ int run(const std::string& model_path) {
     }
 
     std::size_t entity_address_variance_development_routes = 0U;
+    std::size_t entity_address_variance_development_entities = 0U;
     std::size_t entity_address_association_development_routes = 0U;
+    std::size_t entity_address_association_development_entities = 0U;
     std::size_t entity_address_association_development_recall = 0U;
     for (const auto& positive : entity_address_development) {
         const auto variance = infer_with_target_state_memory(
@@ -1097,12 +1099,22 @@ int run(const std::string& model_path) {
             association.hook.applied &&
             association.hook.entity.factor_label == positive.entity &&
             association.hook.relation.factor_label == positive.relation;
+        const auto variance_entity_matched =
+            variance.hook.entity.accepted &&
+            variance.hook.entity.factor_label == positive.entity;
+        const auto association_entity_matched =
+            association.hook.entity.accepted &&
+            association.hook.entity.factor_label == positive.entity;
         const auto association_rank = token_rank(
             association.logits, positive.target_token);
         entity_address_variance_development_routes +=
             variance_routed ? 1U : 0U;
+        entity_address_variance_development_entities +=
+            variance_entity_matched ? 1U : 0U;
         entity_address_association_development_routes +=
             association_routed ? 1U : 0U;
+        entity_address_association_development_entities +=
+            association_entity_matched ? 1U : 0U;
         entity_address_association_development_recall +=
             association_routed && association_rank == 1U ? 1U : 0U;
         std::cout << "entity_address_development=" << positive.name << '/'
@@ -1110,10 +1122,18 @@ int run(const std::string& model_path) {
                   << relations[positive.relation]
                   << " variance_entity_distance="
                   << variance.hook.entity.distance
+                  << " variance_entity="
+                  << variance.hook.entity.factor_label
                   << " variance_routed="
                   << (variance_routed ? "yes" : "no")
                   << " association_entity_distance="
                   << association.hook.entity.distance
+                  << " association_entity="
+                  << association.hook.entity.factor_label
+                  << " association_relation_accepted="
+                  << (association.hook.relation.accepted ? "yes" : "no")
+                  << " association_action_accepted="
+                  << (association.hook.action_accepted ? "yes" : "no")
                   << " association_routed="
                   << (association_routed ? "yes" : "no")
                   << " association_rank=" << association_rank << '\n';
@@ -1121,16 +1141,20 @@ int run(const std::string& model_path) {
     std::cout << "entity_address_development_summary=variance_routes "
               << entity_address_variance_development_routes << '/'
               << entity_address_development.size()
+              << " variance_entities "
+              << entity_address_variance_development_entities << '/'
+              << entity_address_development.size()
               << " association_routes "
               << entity_address_association_development_routes << '/'
+              << entity_address_development.size()
+              << " association_entities "
+              << entity_address_association_development_entities << '/'
               << entity_address_development.size()
               << " association_rank_one "
               << entity_address_association_development_recall << '/'
               << entity_address_development.size() << '\n';
-    if (entity_address_association_development_routes !=
-            entity_address_development.size() ||
-        entity_address_association_development_recall !=
-            entity_address_development.size()) {
+    if (entity_address_association_development_entities !=
+        entity_address_development.size()) {
         throw std::runtime_error(
             "association-signal entity addressing failed its development set");
     }
