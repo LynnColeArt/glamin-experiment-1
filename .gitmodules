@@ -1,0 +1,6 @@
+[submodule "third_party/glamin"]
+	path = third_party/glamin
+	url = https://github.com/LynnColeArt/glamin.git
+[submodule "third_party/llama.cpp"]
+	path = third_party/llama.cpp
+	url = https://github.com/ggerganov/llama.cpp.git
