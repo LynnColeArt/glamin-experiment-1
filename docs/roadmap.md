@@ -71,8 +71,11 @@ A rollback reproduced the baseline logits exactly in the same process.
 - [x] Calibrate action authorization against only tuple-local, runtime-reachable
   controls; route 12/12 new frozen paraphrases and abstain exactly on 12/12
   tuple-matched wrong intents.
-- [ ] Generalize relation and action-context representations to frozen,
-  previously unseen paraphrase sets.
+- [x] Separate factorized authorization at `l_out-34` from target-state action at
+  `l_out-35`; record 10/10 conditional target transfer and the 10/12 compact
+  entity-routing boundary on a new frozen split.
+- [ ] Generalize entity, relation, and action-context representations across
+  frozen, previously unseen paraphrase sets.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

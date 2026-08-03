@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -78,6 +79,50 @@ private:
     std::string error_;
     std::optional<FactorizedMemoryResult> last_result_;
     std::size_t invocation_count_{0};
+};
+
+class LlamaTwoStageFactorizedGlaminHook final {
+public:
+    LlamaTwoStageFactorizedGlaminHook(
+        FactorizedLayerMemoryHook hook,
+        std::shared_ptr<const TupleTargetStateLedger> target_states,
+        std::string address_tensor,
+        std::string action_tensor,
+        float gate = 1.0F);
+
+    LlamaTwoStageFactorizedGlaminHook(
+        const LlamaTwoStageFactorizedGlaminHook&) = delete;
+    LlamaTwoStageFactorizedGlaminHook& operator=(
+        const LlamaTwoStageFactorizedGlaminHook&) = delete;
+    LlamaTwoStageFactorizedGlaminHook(
+        LlamaTwoStageFactorizedGlaminHook&&) = delete;
+    LlamaTwoStageFactorizedGlaminHook& operator=(
+        LlamaTwoStageFactorizedGlaminHook&&) = delete;
+
+    [[nodiscard]] static bool evaluate(
+        ggml_tensor* tensor,
+        bool ask,
+        void* user_data) noexcept;
+
+    void throw_if_failed() const;
+    [[nodiscard]] bool failed() const noexcept;
+    [[nodiscard]] const std::string& error() const noexcept;
+    [[nodiscard]] std::size_t authorization_invocation_count() const noexcept;
+    [[nodiscard]] std::size_t action_invocation_count() const noexcept;
+    [[nodiscard]] const std::optional<FactorizedMemoryResult>& last_result() const noexcept;
+
+private:
+    [[nodiscard]] bool evaluate_tensor(ggml_tensor* tensor, bool ask);
+
+    FactorizedLayerMemoryHook hook_;
+    std::shared_ptr<const TupleTargetStateLedger> target_states_;
+    std::string address_tensor_;
+    std::string action_tensor_;
+    float gate_{1.0F};
+    std::string error_;
+    std::optional<FactorizedMemoryResult> last_result_;
+    std::size_t authorization_invocation_count_{0};
+    std::size_t action_invocation_count_{0};
 };
 
 class LlamaHiddenStateCapture final {

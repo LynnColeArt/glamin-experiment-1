@@ -54,6 +54,9 @@ controls reached that gate and abstained exactly, exposing gate-local
 calibration as the next boundary. Topology-aware action calibration now routes
 12/12 further frozen paraphrases while 12/12 tuple-matched wrong intents and two
 missing tuples remain exact no-ops. The selected residual produces rank-one
-answers on 9/12, isolating form-invariant action transfer as the next boundary.
-Persisted factorized artifacts, trained adapters, durable traces, and external
-procedural actions remain future work.
+answers on 9/12. A two-stage follow-up authorizes at `l_out-34` and applies a
+reviewed target state at `l_out-35`: it reached rank one on all 10 authorized
+frozen prompts, compared with 6/10 for residuals, but missed its 12/12 criterion
+because two compact Arcturus forms failed the upstream entity gate. Persisted
+factorized artifacts, trained adapters, durable traces, and external procedural
+actions remain future work.

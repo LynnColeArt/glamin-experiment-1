@@ -135,6 +135,24 @@ The entity, relation, exact-tuple, and action-context checks all fail closed.
 The probe currently keeps tuple variants in host memory; a deployable
 factorized generation must persist and hash-bind the complete join contract.
 
+The two-stage probe separates those checks from the tensor that receives the
+action:
+
+```text
+l_out-34 -> factor and tuple authorization -> no early tensor mutation
+                                                |
+                                                v
+                         accepted tuple target state
+                                                |
+                                                v
+l_out-35 --------------------------------> gated final-row interpolation
+```
+
+The action tensor is never written when authorization fails. The current probe
+uses a gate of `1.0`, replacing the final row with a reviewed tuple target state.
+This ledger is host-resident and is not yet part of the persisted artifact
+contract.
+
 ## Request Lifecycle
 
 ```text
@@ -146,7 +164,8 @@ factorized generation must persist and hash-bind the complete join contract.
    Glamin space.
 6. Submit and complete traversal.
 7. Validate the returned contract and dimensions.
-8. Apply the gated residual to the action-position state.
+8. Apply the authorized residual or later target state to the action-position
+   tensor.
 9. Continue inference or suspend for an authorized action.
 10. Commit trace metadata and release the generation pin.
 ```

@@ -10,9 +10,9 @@ a versioned C ABI.
 
 The project is deliberately narrower than a general agent-memory framework. It
 does not retrieve documents into a prompt and it does not modify model weights.
-Instead, a callback intercepts a named transformer tensor, derives an address
-from live hidden states, searches an immutable Glamin generation, applies a
-generation-qualified residual to the active tensor, and resumes the same model
+Instead, a callback intercepts named transformer tensors, derives an address
+from live hidden states, searches an immutable Glamin generation, and applies
+an authorized residual or later target state before resuming the same model
 evaluation.
 
 > **Research status:** experimental. The repository establishes several small,
@@ -38,14 +38,13 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-On the latest frozen-model probe, the factorized system routed all 12 unseen
-retrieval prompts to the intended entity, relation, tuple, and action
-neighborhood. It rejected all 12 tuple-matched wrong-intent controls with
-exactly unchanged logits and also abstained on both deliberately absent tuples.
-The selected residual produced the stored target as the rank-one next token on
-9 of 12 prompts. This isolates the current boundary: authorization generalized
-on this small split, while view-conditioned action transfer did not generalize
-completely.
+The latest probe separates authorization at `l_out-34` from target-state action
+at `l_out-35`. On a new frozen split it authorized 10 of 12 prompts. For every
+authorized prompt, the later action reproduced the stored target at rank one;
+the early residual baseline did so on only 6 of 10. Two compact Arcturus prompts
+failed the upstream entity gate and remained exact no-ops, so the preregistered
+12/12 end-to-end criterion was not met. All 12 tuple-matched wrong intents and
+both deliberately absent tuples also remained exact no-ops.
 
 ## Research questions
 
@@ -77,7 +76,8 @@ all token states ──> entity Glamin space ──> entity evidence + distance 
 
 (entity, relation) ──> exact reviewed tuple ledger
                     └─> tuple-local action search + distance gate
-                        └─> residual injection at the final token row
+                        ├─> early residual injection, or
+                        └─> later reviewed target-state interpolation
 ```
 
 Failure at any gate leaves the hooked tensor unchanged.
@@ -99,7 +99,9 @@ This repository currently provides:
 - variance and association-signal projection strategies;
 - global and runtime-topology-aware gate calibration;
 - factorized entity and relation search, an exact tuple ledger, and a
-  tuple-local action gate; and
+  tuple-local action gate;
+- authorization-only factorized lookup, a reviewed target-state ledger, and a
+  two-tensor callback for later action; and
 - executable probes that distinguish construction, development, frozen
   evaluation, negative controls, and deliberately missing tuples.
 
@@ -136,10 +138,11 @@ prompt -> pinned llama.cpp -> tensor callback --------------------+
                                              next-token logits
 ```
 
-The current real-model probes target Qwen3's penultimate transformer output,
-`l_out-34`, where all prompt-token rows remain available for address discovery.
-The selected action is applied only to the final row. The model, tensor name,
-hidden width, projection, selection policy, Glamin space, residual labels, and
+The real-model probes address Qwen3 at `l_out-34`, where all prompt-token rows
+remain available. The residual baseline acts on that tensor's final row. The
+two-stage path authorizes there without mutation and, if accepted, interpolates
+the final row of `l_out-35` to a reviewed tuple target state. The model, tensor
+names, hidden width, projection, selection policy, Glamin space, payloads, and
 distance boundary are treated as one compatibility contract.
 
 Glamin indexes are used for geometric search. Exact tuple membership,
@@ -161,8 +164,9 @@ measurable. Model files are not included in this repository.
 | Projected action probe | 4/12 frozen paraphrases produced rank-one targets | Missing tuples remained exact no-ops | Compact syntax often failed relation retrieval |
 | Association-signal relation probe | Intended relation accepted on 12/12 frozen prompts | Six tuple-matched wrong intents abstained exactly | Legacy negatives constrained the action radius; 0/12 end-to-end recall |
 | Topology-aware action probe | 12/12 frozen prompts routed; 9/12 produced rank-one targets | 12/12 tuple-matched wrong intents and 2/2 missing tuples were exact no-ops | Authorization generalized; selected residual transfer remained form-sensitive |
+| Two-stage target-state probe | 10/12 frozen prompts routed; target state reached rank one on 10/10 authorized prompts versus 6/10 for residuals | 12/12 wrong intents, 2/2 missing tuples, and 2 rejected archive prompts were exact no-ops | Missed its 12/12 criterion at the compact Arcturus entity gate |
 
-### Latest factorized probe
+### Topology-aware action probe
 
 Six of eight possible entity–relation tuples were registered. The other two
 combine known factors but have no reviewed payload, explicitly testing whether
@@ -192,6 +196,25 @@ These measurements support a limited conclusion: the tested topology can
 separate “retrieve this reviewed tuple” from same-factor non-retrieval intent.
 They do not show that nearest view-conditioned residuals constitute a
 form-invariant memory action.
+
+### Two-stage target-state probe
+
+The follow-up preserves the complete authorization path at `l_out-34` but
+leaves that tensor untouched. Accepted tuples select a canonical teacher state,
+which replaces the final row at `l_out-35` through a gate of `1.0`. A new split
+was authored before the first run, with residual and target-state paths compared
+on identical prompts.
+
+Development produced 12/12 routes, 9/12 residual rank-one results, and 12/12
+target-state rank-one results. The frozen set produced 10/12 routes, 6/12
+residual rank-one results, and 10/12 target-state rank-one results. Conditional
+on authorization, target-state transfer was 10/10 and matched canonical teacher
+logits within `3.8147e-06`.
+
+The two failures were compact archive forms for Arcturus. Both relations were
+accepted, but entity distance `0.0617394` exceeded the calibrated `0.0510935`
+radius. This failed the preregistered 12/12 end-to-end criterion without
+weakening abstention or implicating the later action mechanism.
 
 ## Calibration semantics
 
@@ -284,12 +307,14 @@ export GX1_MODEL_PATH=/absolute/path/to/Qwen_Qwen3-4B-Q4_K_M.gguf
 ./build/gx1_llama_factorized_memory_experiment "$GX1_MODEL_PATH"
 ```
 
-The factorized executable is the current end-to-end regression probe. A
-successful run reports:
+The factorized executable is the current end-to-end research probe. Its latest
+frozen criterion is intentionally unmet, so it reports the measured summary and
+returns nonzero:
 
 ```text
-evaluation_routes=12/12 evaluation_recall=9/12
-factorized memory experiment passed
+two_stage_evaluation_summary=routes 10/12 residual_rank_one=6/12 \
+target_state_rank_one=10/12 target_state_conditional=10/10
+factorized memory experiment failed: two-stage target-state memory failed the frozen evaluation set
 ```
 
 Quantized kernels, compiler versions, processor behavior, and future dependency
@@ -352,8 +377,12 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
   independent training corpus.
 - Calibration and evaluation corpora are small and authored by the experiment
   designer.
-- The latest 12/12 routing result does not imply open-ended paraphrase coverage.
-- Residual actions remain view-conditioned and fail on three frozen prompts.
+- A prior 12/12 routing result did not generalize to two compact Arcturus forms
+  in the latest frozen split.
+- Residual actions remain view-conditioned; later target states are 10/10
+  conditional on authorization but use aggressive full-state replacement.
+- Effects on multi-token continuations and unrelated model capabilities have
+  not been measured.
 - The factorized tuple/action ledger is not yet persisted as one atomic Glamin
   generation.
 - Scaling behavior, index collisions, online writes, durable traces, and
@@ -362,10 +391,10 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
 
 ## Near-term research agenda
 
-1. Replace nearest view-conditioned residual transfer with a reviewed
-   neighborhood transform or later-layer target-state action.
-2. Evaluate it against a new development/frozen split without modifying the
-   existing frozen prompts.
+1. Leave the failed archive prompts frozen and create a new split for a
+   form-stable entity representation, such as association-signal projection.
+2. Retain later target-state action and every current wrong-intent and missing
+   tuple control while evaluating end-to-end factor coverage.
 3. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
 4. Add generation-A/generation-B behavioral baselines and geometry diffs.

@@ -133,9 +133,13 @@ independently calibrated Glamin spaces, performs an exact tuple join, and gates
 a contextual residual. Its latest topology-aware probe passes 36 registered
 action contexts, routes 12/12 frozen paraphrases, and exactly abstains on two
 missing known-factor tuples plus 12 tuple-matched wrong intents. The selected
-residual produces rank-one targets on 9/12 frozen prompts. The next boundary is
-form-invariant action transfer, persistence of the complete factorized
-contract, batched scanning, and a substantially larger negative-control set.
+residual produces rank-one targets on 9/12 frozen prompts. A two-stage callback
+now authorizes at `l_out-34` without mutation and applies a reviewed target state
+at `l_out-35`. On its new frozen split it produced rank-one targets for all
+10 authorized prompts, versus 6/10 for residuals; two compact Arcturus prompts
+failed the entity gate, so the preregistered 12/12 criterion was not met. The
+next boundary is compact entity-form generalization, persistence of the complete
+factorized contract, batched scanning, and a substantially larger negative set.
 
 Run the factorized frozen-model probe with:
 

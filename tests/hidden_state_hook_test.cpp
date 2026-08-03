@@ -326,6 +326,14 @@ void test_factorized_tuple_join_and_abstention() {
         {0.0F, 10.0F},
         {50.0F, 50.0F},
     };
+    const auto authorized = hook.authorize_nearest(
+        candidates, std::vector<float>{3.0F, 4.0F});
+    expect(authorized.entity.factor_label == 100U &&
+               authorized.relation.factor_label == 8U &&
+               authorized.action_accepted && !authorized.applied &&
+               authorized.gate == 0.0F,
+           "authorization-only factorized join reported the wrong state");
+
     std::vector<float> hidden{3.0F, 4.0F};
     const auto joined = hook.apply_nearest(candidates, hidden);
     expect(joined.entity.factor_label == 100U,
@@ -371,6 +379,24 @@ void test_factorized_tuple_join_and_abstention() {
     expect(!distant.applied &&
                distant_hidden == std::vector<float>({3.0F, 4.0F}),
            "rejected factor evidence changed the action state");
+
+    gx1::TupleTargetStateLedger target_states;
+    target_states.insert(100U, 8U, {9.0F, 8.0F});
+    expect(target_states.size() == 1U &&
+               target_states.find(100U, 8U) != nullptr &&
+               *target_states.find(100U, 8U) ==
+                   std::vector<float>({9.0F, 8.0F}) &&
+               target_states.find(200U, 8U) == nullptr,
+           "tuple target-state ledger returned the wrong payload");
+
+    bool duplicate_rejected = false;
+    try {
+        target_states.insert(100U, 8U, {1.0F, 2.0F});
+    } catch (const std::invalid_argument&) {
+        duplicate_rejected = true;
+    }
+    expect(duplicate_rejected,
+           "tuple target-state ledger accepted a duplicate tuple");
 }
 
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {

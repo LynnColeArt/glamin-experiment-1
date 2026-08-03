@@ -136,6 +136,31 @@ std::size_t TupleResidualLedger::size() const noexcept {
     return residuals_.size();
 }
 
+void TupleTargetStateLedger::insert(
+    const std::uint64_t entity,
+    const std::uint64_t relation,
+    std::vector<float> target_state) {
+    if (target_state.empty() || !all_finite(target_state)) {
+        throw std::invalid_argument("tuple target-state values are invalid");
+    }
+    const auto inserted = target_states_.emplace(
+        Tuple{entity, relation}, std::move(target_state));
+    if (!inserted.second) {
+        throw std::invalid_argument("tuple target state is already populated");
+    }
+}
+
+const std::vector<float>* TupleTargetStateLedger::find(
+    const std::uint64_t entity,
+    const std::uint64_t relation) const noexcept {
+    const auto found = target_states_.find(Tuple{entity, relation});
+    return found == target_states_.end() ? nullptr : &found->second;
+}
+
+std::size_t TupleTargetStateLedger::size() const noexcept {
+    return target_states_.size();
+}
+
 FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     GlaminGenerationPin entity_pin,
     FactorSearchConfig entity_config,
@@ -185,36 +210,13 @@ FactorizedMemoryResult FactorizedLayerMemoryHook::apply_nearest(
     const std::vector<std::vector<float>>& entity_states,
     const std::vector<std::vector<float>>& relation_states,
     std::vector<float>& hidden_state) const {
-    if (hidden_state.size() != hidden_dimension() || !all_finite(hidden_state)) {
-        throw std::invalid_argument("factorized action state has the wrong shape or values");
-    }
-
-    FactorizedMemoryResult result;
-    result.entity = nearest(
-        entity_pin_, entity_config_, entity_labels_, entity_states);
-    result.relation = nearest(
-        relation_pin_, relation_config_, relation_labels_, relation_states);
-    if (!result.entity.accepted || !result.relation.accepted) {
+    auto selection = authorize_selection(
+        entity_states, relation_states, hidden_state);
+    auto result = std::move(selection.first);
+    const auto& action = selection.second;
+    if (!result.action_accepted || action.residual == nullptr) {
         return result;
     }
-
-    const auto action_query = action_config_
-                                  ? project(*action_config_, hidden_state)
-                                  : hidden_state;
-    const auto action = payloads_->select(
-        result.entity.factor_label,
-        result.relation.factor_label,
-        action_query);
-    if (action.residual == nullptr) {
-        return result;
-    }
-    result.tuple_found = true;
-    result.action_distance = action.distance;
-    result.action_variant = action.variant;
-    if (action.distance > maximum_action_distance_) {
-        return result;
-    }
-    result.action_accepted = true;
     if (action.residual->size() != hidden_state.size() ||
         !all_finite(*action.residual)) {
         throw std::runtime_error("tuple residual does not match the hidden-state contract");
@@ -231,6 +233,57 @@ FactorizedMemoryResult FactorizedLayerMemoryHook::apply_nearest(
     result.gate = gate_;
     result.applied = true;
     return result;
+}
+
+FactorizedMemoryResult FactorizedLayerMemoryHook::authorize_nearest(
+    const std::vector<std::vector<float>>& address_states,
+    const std::vector<float>& action_state) const {
+    return authorize_nearest(address_states, address_states, action_state);
+}
+
+FactorizedMemoryResult FactorizedLayerMemoryHook::authorize_nearest(
+    const std::vector<std::vector<float>>& entity_states,
+    const std::vector<std::vector<float>>& relation_states,
+    const std::vector<float>& action_state) const {
+    return authorize_selection(entity_states, relation_states, action_state).first;
+}
+
+std::pair<FactorizedMemoryResult, TupleResidualMatch>
+FactorizedLayerMemoryHook::authorize_selection(
+    const std::vector<std::vector<float>>& entity_states,
+    const std::vector<std::vector<float>>& relation_states,
+    const std::vector<float>& action_state) const {
+    if (action_state.size() != hidden_dimension() || !all_finite(action_state)) {
+        throw std::invalid_argument(
+            "factorized action state has the wrong shape or values");
+    }
+
+    FactorizedMemoryResult result;
+    result.entity = nearest(
+        entity_pin_, entity_config_, entity_labels_, entity_states);
+    result.relation = nearest(
+        relation_pin_, relation_config_, relation_labels_, relation_states);
+    if (!result.entity.accepted || !result.relation.accepted) {
+        return {std::move(result), {}};
+    }
+
+    const auto action_query = action_config_
+                                  ? project(*action_config_, action_state)
+                                  : action_state;
+    auto action = payloads_->select(
+        result.entity.factor_label,
+        result.relation.factor_label,
+        action_query);
+    if (action.residual == nullptr) {
+        return {std::move(result), std::move(action)};
+    }
+    result.tuple_found = true;
+    result.action_distance = action.distance;
+    result.action_variant = action.variant;
+    if (action.distance <= maximum_action_distance_) {
+        result.action_accepted = true;
+    }
+    return {std::move(result), std::move(action)};
 }
 
 std::uint32_t FactorizedLayerMemoryHook::hidden_dimension() const noexcept {

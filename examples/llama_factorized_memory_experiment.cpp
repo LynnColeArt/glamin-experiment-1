@@ -46,6 +46,7 @@ struct TupleSpec {
     llama_token target_token{LLAMA_TOKEN_NULL};
     InferenceResult query;
     InferenceResult teacher;
+    InferenceResult late_teacher;
 };
 
 struct MemoryInferenceResult {
@@ -217,6 +218,33 @@ std::string tuple_prompt(const std::string& entity, const std::string& relation)
            "\nAnswer:";
 }
 
+std::vector<std::pair<std::string, std::string>>
+two_stage_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"record-request",
+         "Open the stored record for " + entity + " and return its " +
+             relation + ".\nAnswer:"},
+        {"record-fields",
+         "Memory record: object " + entity + "; field " + relation +
+             "; stored value:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+two_stage_evaluation_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"long-term",
+         "Retrieve from long-term memory: " + entity +
+             "; requested attribute " + relation + ".\nAnswer:"},
+        {"archive",
+         "Archive[" + entity + "] / " + relation + " / value =>"},
+    };
+}
+
 gx1::ActivationMemoryBuildResult build_factor(
     const std::vector<FactorPrompt>& prompts,
     const std::vector<InferenceResult>& negatives,
@@ -295,6 +323,41 @@ MemoryInferenceResult infer_with_memory(
     return {read_logits(context.get(), vocab), *hook.last_result()};
 }
 
+MemoryInferenceResult infer_with_target_state_memory(
+    llama_model* model,
+    const llama_vocab* vocab,
+    const std::string& prompt,
+    gx1::FactorizedLayerMemoryHook memory,
+    std::shared_ptr<const gx1::TupleTargetStateLedger> target_states,
+    const std::string& address_tensor,
+    const std::string& action_tensor) {
+    auto tokens = tokenize(vocab, prompt, llama_vocab_get_add_bos(vocab));
+    gx1::LlamaTwoStageFactorizedGlaminHook hook(
+        std::move(memory),
+        std::move(target_states),
+        address_tensor,
+        action_tensor);
+    auto parameters = context_parameters(tokens.size());
+    parameters.cb_eval = &gx1::LlamaTwoStageFactorizedGlaminHook::evaluate;
+    parameters.cb_eval_user_data = &hook;
+    ContextPointer context(llama_init_from_model(model, parameters), &llama_free);
+    if (!context) {
+        throw std::runtime_error(
+            "failed to create a two-stage factorized memory context");
+    }
+    const auto status = llama_decode(
+        context.get(),
+        llama_batch_get_one(tokens.data(), static_cast<std::int32_t>(tokens.size())));
+    hook.throw_if_failed();
+    if (status != 0 || !hook.last_result() ||
+        hook.authorization_invocation_count() == 0U ||
+        hook.action_invocation_count() == 0U) {
+        throw std::runtime_error(
+            "two-stage factorized memory inference failed");
+    }
+    return {read_logits(context.get(), vocab), *hook.last_result()};
+}
+
 int run(const std::string& model_path) {
     auto model_parameters = llama_model_default_params();
     model_parameters.n_gpu_layers = 0;
@@ -311,18 +374,19 @@ int run(const std::string& model_path) {
     }
     const auto hidden_dimension = static_cast<std::uint32_t>(native_hidden);
     const auto target_tensor = "l_out-" + std::to_string(layer);
+    const auto action_tensor = "l_out-" + std::to_string(layer + 1);
     const auto* vocab = llama_model_get_vocab(model.get());
 
     const std::vector<std::string> entities{
         "Arcturus", "Bellatrix", "Cygnus", "Draco"};
     const std::vector<std::string> relations{"color", "material"};
     std::vector<TupleSpec> tuples{
-        {0U, 0U, " blue", LLAMA_TOKEN_NULL, {}, {}},
-        {0U, 1U, " cedar", LLAMA_TOKEN_NULL, {}, {}},
-        {1U, 0U, " amber", LLAMA_TOKEN_NULL, {}, {}},
-        {2U, 1U, " copper", LLAMA_TOKEN_NULL, {}, {}},
-        {3U, 0U, " violet", LLAMA_TOKEN_NULL, {}, {}},
-        {3U, 1U, " maple", LLAMA_TOKEN_NULL, {}, {}},
+        {0U, 0U, " blue", LLAMA_TOKEN_NULL, {}, {}, {}},
+        {0U, 1U, " cedar", LLAMA_TOKEN_NULL, {}, {}, {}},
+        {1U, 0U, " amber", LLAMA_TOKEN_NULL, {}, {}, {}},
+        {2U, 1U, " copper", LLAMA_TOKEN_NULL, {}, {}, {}},
+        {3U, 0U, " violet", LLAMA_TOKEN_NULL, {}, {}, {}},
+        {3U, 1U, " maple", LLAMA_TOKEN_NULL, {}, {}, {}},
     };
     std::string table = "Memory table:\n";
     for (const auto& tuple : tuples) {
@@ -400,6 +464,17 @@ int run(const std::string& model_path) {
                 }
                 relation_validation.emplace_back(relation, std::move(development));
             }
+            for (const auto& development : two_stage_development_prompts(
+                     entities[entity], relations[relation])) {
+                auto inference = capture(
+                    model.get(),
+                    vocab,
+                    development.second,
+                    hidden_dimension,
+                    target_tensor);
+                entity_validation.emplace_back(entity, inference);
+                relation_validation.emplace_back(relation, std::move(inference));
+            }
         }
     }
 
@@ -444,6 +519,8 @@ int run(const std::string& model_path) {
         tuple.query = tuple_baselines[tuple.entity][tuple.relation];
         tuple.teacher = capture(
             model.get(), vocab, table + prompt, hidden_dimension, target_tensor);
+        tuple.late_teacher = capture(
+            model.get(), vocab, table + prompt, hidden_dimension, action_tensor);
         const auto tokens = tokenize(vocab, tuple.target, false);
         if (tokens.size() != 1U) {
             throw std::runtime_error("factorized target is not one token");
@@ -573,6 +650,7 @@ int run(const std::string& model_path) {
     }
     std::vector<gx1::ActivationMemoryValidationView> action_validation;
     std::vector<ActionPositiveSpec> action_positives;
+    std::vector<ActionPositiveSpec> two_stage_development_positives;
     for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
         const auto& tuple = tuples[tuple_index];
         const std::vector<std::pair<std::string, std::string>> prompts{
@@ -595,6 +673,26 @@ int run(const std::string& model_path) {
                      .hidden_state},
             });
             action_positives.push_back({
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+            });
+        }
+        for (const auto& prompt : two_stage_development_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            action_validation.push_back({
+                tuple_index,
+                {capture(
+                     model.get(),
+                     vocab,
+                     prompt.second,
+                     hidden_dimension,
+                     target_tensor)
+                     .hidden_state},
+            });
+            two_stage_development_positives.push_back({
                 tuple.entity,
                 tuple.relation,
                 prompt.first,
@@ -626,6 +724,13 @@ int run(const std::string& model_path) {
             action.relation,
             action_memory.keys[index],
             action_memory.residuals[index]);
+    }
+    auto target_states = std::make_shared<gx1::TupleTargetStateLedger>();
+    for (const auto& tuple : tuples) {
+        target_states->insert(
+            tuple.entity,
+            tuple.relation,
+            tuple.late_teacher.hidden_state);
     }
 
     const auto make_hook = [&]() {
@@ -697,12 +802,80 @@ int run(const std::string& model_path) {
               << action_positives.size() << '/' << action_positives.size()
               << " routes\n";
 
+    std::size_t two_stage_development_routes = 0U;
+    std::size_t residual_development_recalled = 0U;
+    std::size_t target_state_development_recalled = 0U;
+    for (const auto& positive : two_stage_development_positives) {
+        const auto residual = infer_with_memory(
+            model.get(), vocab, positive.prompt, make_hook(), target_tensor);
+        const auto target_state = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto residual_rank = token_rank(
+            residual.logits, positive.target_token);
+        const auto target_state_rank = token_rank(
+            target_state.logits, positive.target_token);
+        const auto routed = target_state.hook.applied &&
+                            target_state.hook.entity.factor_label ==
+                                positive.entity &&
+                            target_state.hook.relation.factor_label ==
+                                positive.relation;
+        two_stage_development_routes += routed ? 1U : 0U;
+        residual_development_recalled +=
+            residual.hook.applied &&
+                    residual.hook.entity.factor_label == positive.entity &&
+                    residual.hook.relation.factor_label == positive.relation &&
+                    residual_rank == 1U
+                ? 1U
+                : 0U;
+        target_state_development_recalled +=
+            routed && target_state_rank == 1U ? 1U : 0U;
+        std::cout << "two_stage_development=" << positive.name << '/'
+                  << entities[positive.entity] << '/'
+                  << relations[positive.relation]
+                  << " action_distance=" << target_state.hook.action_distance
+                  << " residual_rank=" << residual_rank
+                  << " target_state_rank=" << target_state_rank
+                  << " target_applied="
+                  << (target_state.hook.applied ? "yes" : "no") << '\n';
+    }
+    if (two_stage_development_routes !=
+            two_stage_development_positives.size() ||
+        target_state_development_recalled !=
+            two_stage_development_positives.size()) {
+        throw std::runtime_error(
+            "two-stage target-state memory failed its development set");
+    }
+    std::cout << "two_stage_development_summary=routes "
+              << two_stage_development_routes << '/'
+              << two_stage_development_positives.size()
+              << " residual_rank_one=" << residual_development_recalled << '/'
+              << two_stage_development_positives.size()
+              << " target_state_rank_one="
+              << target_state_development_recalled << '/'
+              << two_stage_development_positives.size() << '\n';
+
     bool wrong_intents_abstained = true;
     for (const auto& negative : wrong_intents) {
         const auto memory = infer_with_memory(
             model.get(), vocab, negative.prompt, make_hook(), target_tensor);
+        const auto target_state_memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            negative.prompt,
+            make_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
         const auto delta = maximum_logit_difference(
             negative.baseline.logits, memory.logits);
+        const auto target_state_delta = maximum_logit_difference(
+            negative.baseline.logits, target_state_memory.logits);
         const auto reached_action_gate =
             memory.hook.entity.accepted && memory.hook.relation.accepted &&
             memory.hook.entity.factor_label == negative.entity &&
@@ -711,7 +884,13 @@ int run(const std::string& model_path) {
         wrong_intents_abstained =
             wrong_intents_abstained && reached_action_gate &&
             !memory.hook.action_accepted && !memory.hook.applied &&
-            delta <= 1.0e-5F;
+            delta <= 1.0e-5F &&
+            target_state_memory.hook.entity.factor_label == negative.entity &&
+            target_state_memory.hook.relation.factor_label == negative.relation &&
+            target_state_memory.hook.tuple_found &&
+            !target_state_memory.hook.action_accepted &&
+            !target_state_memory.hook.applied &&
+            target_state_delta <= 1.0e-5F;
         std::cout << "wrong_intent=" << negative.name << '/'
                   << entities[negative.entity] << '/'
                   << relations[negative.relation]
@@ -723,7 +902,8 @@ int run(const std::string& model_path) {
                   << (memory.hook.tuple_found ? "yes" : "no")
                   << " action_distance=" << memory.hook.action_distance
                   << " applied=" << (memory.hook.applied ? "yes" : "no")
-                  << " max_logit_delta=" << delta << '\n';
+                  << " residual_logit_delta=" << delta
+                  << " target_state_logit_delta=" << target_state_delta << '\n';
     }
     if (!wrong_intents_abstained) {
         throw std::runtime_error(
@@ -740,10 +920,25 @@ int run(const std::string& model_path) {
             tuple_prompt(entities[missing.first], relations[missing.second]),
             make_hook(),
             target_tensor);
+        const auto target_state_memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            tuple_prompt(entities[missing.first], relations[missing.second]),
+            make_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
         const auto delta = maximum_logit_difference(baseline.logits, memory.logits);
+        const auto target_state_delta = maximum_logit_difference(
+            baseline.logits, target_state_memory.logits);
         missing_abstained = missing_abstained && memory.hook.entity.accepted &&
                             memory.hook.relation.accepted && !memory.hook.tuple_found &&
-                            !memory.hook.applied && delta <= 1.0e-5F;
+                            !memory.hook.applied && delta <= 1.0e-5F &&
+                            target_state_memory.hook.entity.accepted &&
+                            target_state_memory.hook.relation.accepted &&
+                            !target_state_memory.hook.tuple_found &&
+                            !target_state_memory.hook.applied &&
+                            target_state_delta <= 1.0e-5F;
         std::cout << "missing_tuple=" << entities[missing.first] << '/'
                   << relations[missing.second]
                   << " factors_accepted="
@@ -751,7 +946,8 @@ int run(const std::string& model_path) {
                           ? "yes"
                           : "no")
                   << " applied=" << (memory.hook.applied ? "yes" : "no")
-                  << " max_logit_delta=" << delta << '\n';
+                  << " residual_logit_delta=" << delta
+                  << " target_state_logit_delta=" << target_state_delta << '\n';
     }
     if (!missing_abstained) {
         throw std::runtime_error("factorized memory failed compositional abstention");
@@ -815,6 +1011,106 @@ int run(const std::string& model_path) {
         throw std::runtime_error(
             "factorized memory failed to route the frozen evaluation set");
     }
+
+    std::size_t two_stage_evaluation_routes = 0U;
+    std::size_t residual_evaluation_recalled = 0U;
+    std::size_t target_state_evaluation_recalled = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : two_stage_evaluation_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto residual = infer_with_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_hook(),
+                target_tensor);
+            const auto target_state = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto residual_rank = token_rank(
+                residual.logits, tuple.target_token);
+            const auto target_state_rank = token_rank(
+                target_state.logits, tuple.target_token);
+            const auto routed = target_state.hook.applied &&
+                                target_state.hook.entity.factor_label ==
+                                    tuple.entity &&
+                                target_state.hook.relation.factor_label ==
+                                    tuple.relation;
+            const auto residual_recalled =
+                residual.hook.applied &&
+                residual.hook.entity.factor_label == tuple.entity &&
+                residual.hook.relation.factor_label == tuple.relation &&
+                residual.logits[static_cast<std::size_t>(tuple.target_token)] >
+                    baseline.logits[static_cast<std::size_t>(tuple.target_token)] &&
+                residual_rank == 1U;
+            const auto target_state_recalled =
+                routed &&
+                target_state.logits[static_cast<std::size_t>(tuple.target_token)] >
+                    baseline.logits[static_cast<std::size_t>(tuple.target_token)] &&
+                target_state_rank == 1U;
+            two_stage_evaluation_routes += routed ? 1U : 0U;
+            residual_evaluation_recalled += residual_recalled ? 1U : 0U;
+            target_state_evaluation_recalled +=
+                target_state_recalled ? 1U : 0U;
+            std::cout << "two_stage_evaluation=" << held_out.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " entity=" << target_state.hook.entity.factor_label
+                      << " entity_distance="
+                      << target_state.hook.entity.distance
+                      << " entity_accepted="
+                      << (target_state.hook.entity.accepted ? "yes" : "no")
+                      << " relation=" << target_state.hook.relation.factor_label
+                      << " relation_distance="
+                      << target_state.hook.relation.distance
+                      << " relation_accepted="
+                      << (target_state.hook.relation.accepted ? "yes" : "no")
+                      << " action_distance="
+                      << target_state.hook.action_distance
+                      << " action_accepted="
+                      << (target_state.hook.action_accepted ? "yes" : "no")
+                      << " residual_rank=" << residual_rank
+                      << " target_state_rank=" << target_state_rank
+                      << " residual_logit_delta="
+                      << maximum_logit_difference(
+                             baseline.logits, residual.logits)
+                      << " target_state_logit_delta="
+                      << maximum_logit_difference(
+                             baseline.logits, target_state.logits)
+                      << " teacher_logit_delta="
+                      << maximum_logit_difference(
+                             tuple.late_teacher.logits, target_state.logits)
+                      << '\n';
+        }
+    }
+    const auto two_stage_evaluation_count = tuples.size() * 2U;
+    std::cout << "two_stage_evaluation_summary=routes "
+              << two_stage_evaluation_routes << '/'
+              << two_stage_evaluation_count
+              << " residual_rank_one=" << residual_evaluation_recalled << '/'
+              << two_stage_evaluation_count
+              << " target_state_rank_one="
+              << target_state_evaluation_recalled << '/'
+              << two_stage_evaluation_count
+              << " target_state_conditional="
+              << target_state_evaluation_recalled << '/'
+              << two_stage_evaluation_routes << '\n';
+    if (two_stage_evaluation_routes != two_stage_evaluation_count ||
+        target_state_evaluation_recalled != two_stage_evaluation_count) {
+        throw std::runtime_error(
+            "two-stage target-state memory failed the frozen evaluation set");
+    }
     std::cout << "stored_tuples=" << tuples.size()
               << " registered_action_views=" << action_view_specs.size()
               << " development_action_views=" << action_positives.size()
@@ -823,6 +1119,15 @@ int run(const std::string& model_path) {
               << tuples.size() * 2U
               << " evaluation_recall=" << evaluation_recalled << '/'
               << tuples.size() * 2U
+              << " two_stage_evaluation_routes="
+              << two_stage_evaluation_routes << '/'
+              << two_stage_evaluation_count
+              << " residual_evaluation_recall="
+              << residual_evaluation_recalled << '/'
+              << two_stage_evaluation_count
+              << " target_state_evaluation_recall="
+              << target_state_evaluation_recalled << '/'
+              << two_stage_evaluation_count
               << " missing_known_factor_tuples=2\n"
               << "factorized memory experiment passed\n";
     return EXIT_SUCCESS;

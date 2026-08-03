@@ -1,5 +1,6 @@
 #include "gx1/llama_glamin_hook.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -250,6 +251,130 @@ bool LlamaFactorizedGlaminHook::evaluate_tensor(
         read_all_hidden_states(tensor, hook_.hidden_dimension()), hidden_state);
     write_last_hidden_state(tensor, hidden_state);
     ++invocation_count_;
+    return true;
+}
+
+LlamaTwoStageFactorizedGlaminHook::LlamaTwoStageFactorizedGlaminHook(
+    FactorizedLayerMemoryHook hook,
+    std::shared_ptr<const TupleTargetStateLedger> target_states,
+    std::string address_tensor,
+    std::string action_tensor,
+    const float gate)
+    : hook_(std::move(hook)),
+      target_states_(std::move(target_states)),
+      address_tensor_(std::move(address_tensor)),
+      action_tensor_(std::move(action_tensor)),
+      gate_(gate) {
+    if (!target_states_ || address_tensor_.empty() || action_tensor_.empty() ||
+        address_tensor_ == action_tensor_ ||
+        address_tensor_.find('\0') != std::string::npos ||
+        action_tensor_.find('\0') != std::string::npos ||
+        !std::isfinite(gate_) || !(gate_ > 0.0F && gate_ <= 1.0F)) {
+        throw std::invalid_argument(
+            "llama.cpp two-stage factorized hook contract is invalid");
+    }
+}
+
+bool LlamaTwoStageFactorizedGlaminHook::evaluate(
+    ggml_tensor* tensor,
+    const bool ask,
+    void* user_data) noexcept {
+    if (user_data == nullptr) {
+        return false;
+    }
+    auto* hook = static_cast<LlamaTwoStageFactorizedGlaminHook*>(user_data);
+    try {
+        return hook->evaluate_tensor(tensor, ask);
+    } catch (const std::exception& error) {
+        hook->error_ = error.what();
+        return false;
+    } catch (...) {
+        hook->error_ =
+            "unknown failure in llama.cpp two-stage factorized memory callback";
+        return false;
+    }
+}
+
+void LlamaTwoStageFactorizedGlaminHook::throw_if_failed() const {
+    if (!error_.empty()) {
+        throw std::runtime_error(error_);
+    }
+}
+
+bool LlamaTwoStageFactorizedGlaminHook::failed() const noexcept {
+    return !error_.empty();
+}
+
+const std::string& LlamaTwoStageFactorizedGlaminHook::error() const noexcept {
+    return error_;
+}
+
+std::size_t
+LlamaTwoStageFactorizedGlaminHook::authorization_invocation_count() const noexcept {
+    return authorization_invocation_count_;
+}
+
+std::size_t
+LlamaTwoStageFactorizedGlaminHook::action_invocation_count() const noexcept {
+    return action_invocation_count_;
+}
+
+const std::optional<FactorizedMemoryResult>&
+LlamaTwoStageFactorizedGlaminHook::last_result() const noexcept {
+    return last_result_;
+}
+
+bool LlamaTwoStageFactorizedGlaminHook::evaluate_tensor(
+    ggml_tensor* tensor,
+    const bool ask) {
+    if (tensor == nullptr) {
+        throw std::invalid_argument("llama.cpp callback supplied a null tensor");
+    }
+    const bool address_matches =
+        std::strcmp(tensor->name, address_tensor_.c_str()) == 0;
+    const bool action_matches =
+        std::strcmp(tensor->name, action_tensor_.c_str()) == 0;
+    if (ask) {
+        return address_matches || action_matches;
+    }
+    if (!address_matches && !action_matches) {
+        return true;
+    }
+
+    if (address_matches) {
+        const auto last_token = last_token_index(tensor);
+        const auto action_state = read_hidden_state(
+            tensor, hook_.hidden_dimension(), last_token);
+        last_result_ = hook_.authorize_nearest(
+            read_all_hidden_states(tensor, hook_.hidden_dimension()),
+            action_state);
+        ++authorization_invocation_count_;
+        return true;
+    }
+
+    if (!last_result_) {
+        throw std::runtime_error(
+            "two-stage action tensor was evaluated before authorization");
+    }
+    ++action_invocation_count_;
+    if (!last_result_->action_accepted) {
+        return true;
+    }
+    const auto* target_state = target_states_->find(
+        last_result_->entity.factor_label,
+        last_result_->relation.factor_label);
+    if (target_state == nullptr || target_state->size() != hook_.hidden_dimension()) {
+        throw std::runtime_error(
+            "authorized tuple has no compatible target state");
+    }
+    auto hidden_state = read_hidden_state(
+        tensor, hook_.hidden_dimension(), last_token_index(tensor));
+    for (std::size_t index = 0; index < hidden_state.size(); ++index) {
+        hidden_state[index] += gate_ * ((*target_state)[index] - hidden_state[index]);
+    }
+    write_last_hidden_state(tensor, hidden_state);
+    last_result_->gate = gate_;
+    last_result_->applied = true;
     return true;
 }
 

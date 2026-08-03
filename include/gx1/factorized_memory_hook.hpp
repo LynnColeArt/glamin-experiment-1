@@ -74,6 +74,23 @@ private:
     std::map<Tuple, std::vector<Variant>> residuals_;
 };
 
+class TupleTargetStateLedger final {
+public:
+    void insert(
+        std::uint64_t entity,
+        std::uint64_t relation,
+        std::vector<float> target_state);
+
+    [[nodiscard]] const std::vector<float>* find(
+        std::uint64_t entity,
+        std::uint64_t relation) const noexcept;
+    [[nodiscard]] std::size_t size() const noexcept;
+
+private:
+    using Tuple = std::pair<std::uint64_t, std::uint64_t>;
+    std::map<Tuple, std::vector<float>> target_states_;
+};
+
 class FactorizedLayerMemoryHook final {
 public:
     FactorizedLayerMemoryHook(
@@ -100,12 +117,24 @@ public:
         const std::vector<std::vector<float>>& entity_states,
         const std::vector<std::vector<float>>& relation_states,
         std::vector<float>& hidden_state) const;
+    [[nodiscard]] FactorizedMemoryResult authorize_nearest(
+        const std::vector<std::vector<float>>& address_states,
+        const std::vector<float>& action_state) const;
+    [[nodiscard]] FactorizedMemoryResult authorize_nearest(
+        const std::vector<std::vector<float>>& entity_states,
+        const std::vector<std::vector<float>>& relation_states,
+        const std::vector<float>& action_state) const;
 
     [[nodiscard]] std::uint32_t hidden_dimension() const noexcept;
     [[nodiscard]] GlaminGenerationId entity_generation() const;
     [[nodiscard]] GlaminGenerationId relation_generation() const;
 
 private:
+    [[nodiscard]] std::pair<FactorizedMemoryResult, TupleResidualMatch>
+    authorize_selection(
+        const std::vector<std::vector<float>>& entity_states,
+        const std::vector<std::vector<float>>& relation_states,
+        const std::vector<float>& action_state) const;
     [[nodiscard]] FactorEvidence nearest(
         const GlaminGenerationPin& pin,
         const FactorSearchConfig& config,
