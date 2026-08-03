@@ -144,12 +144,45 @@ void test_association_signal_ignores_high_variance_form_noise() {
            "builder accepted an unknown projection strategy");
 }
 
+void test_association_scoped_validation_and_negatives() {
+    const std::vector<gx1::ActivationMemoryConstructionView> views{
+        {0U, {{1.0F, 0.0F}}, {1.0F, 0.0F}, {2.0F, 0.0F}},
+        {1U, {{0.0F, 1.0F}}, {0.0F, 1.0F}, {0.0F, 2.0F}},
+    };
+    const std::vector<gx1::ActivationMemoryCalibrationView> negatives{
+        {0U, {{-1.0F, 0.0F}}},
+    };
+    const std::vector<gx1::ActivationMemoryValidationView> validation{
+        {0U, {{0.1F, 1.0F}}},
+    };
+
+    const auto result = gx1::ActivationMemoryBuilder::build(
+        views,
+        negatives,
+        validation,
+        gx1::ActivationMemoryBuildConfig{
+            2U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::variance,
+            gx1::ActivationValidationScope::association,
+        });
+    expect(result.validation_selections.front().key == 0U,
+           "scoped validation escaped its association");
+    expect(std::abs(result.minimum_negative_distance - 4.0F) < 1.0e-6F,
+           "scoped negative searched outside its association");
+    expect(result.maximum_validation_distance < result.maximum_distance &&
+               result.maximum_distance < result.minimum_negative_distance,
+           "scoped calibration returned an invalid gate");
+}
+
 } // namespace
 
 int main() {
     try {
         test_multi_view_key_construction_and_gate();
         test_association_signal_ignores_high_variance_form_noise();
+        test_association_scoped_validation_and_negatives();
         std::cout << "activation-memory builder tests passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

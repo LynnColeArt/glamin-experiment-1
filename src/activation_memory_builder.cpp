@@ -204,6 +204,63 @@ ActivationMemorySelection nearest_key(
     return nearest;
 }
 
+ActivationMemorySelection nearest_key_in_association(
+    const std::vector<float>& query,
+    const std::vector<std::vector<float>>& keys,
+    const std::vector<std::size_t>& key_groups,
+    const std::size_t association,
+    const std::size_t candidate) {
+    if (keys.size() != key_groups.size() || keys.empty()) {
+        throw std::invalid_argument("scoped memory keys are invalid");
+    }
+    ActivationMemorySelection nearest;
+    nearest.candidate = candidate;
+    nearest.distance = std::numeric_limits<float>::max();
+    bool found = false;
+    for (std::size_t key = 0; key < keys.size(); ++key) {
+        if (key_groups[key] != association) {
+            continue;
+        }
+        const auto distance = squared_distance(query, keys[key]);
+        if (!found || distance < nearest.distance) {
+            nearest.key = key;
+            nearest.distance = distance;
+            found = true;
+        }
+    }
+    if (!found) {
+        throw std::invalid_argument("scoped memory association has no keys");
+    }
+    return nearest;
+}
+
+ActivationMemorySelection nearest_candidate_in_association(
+    const ActivationStateSequence& states,
+    const std::vector<float>& projection,
+    const std::uint32_t query_dimension,
+    const std::vector<std::vector<float>>& keys,
+    const std::vector<std::size_t>& key_groups,
+    const std::size_t association) {
+    auto nearest = nearest_key_in_association(
+        project_normalized(states.front(), projection, query_dimension),
+        keys,
+        key_groups,
+        association,
+        0U);
+    for (std::size_t candidate = 1; candidate < states.size(); ++candidate) {
+        const auto current = nearest_key_in_association(
+            project_normalized(states[candidate], projection, query_dimension),
+            keys,
+            key_groups,
+            association,
+            candidate);
+        if (current.distance < nearest.distance) {
+            nearest = current;
+        }
+    }
+    return nearest;
+}
+
 std::pair<ActivationMemorySelection, float> nearest_candidate_grouped(
     const ActivationStateSequence& states,
     const std::vector<float>& projection,
@@ -248,6 +305,20 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
     const std::vector<ActivationStateSequence>& calibration_negatives,
     const std::vector<ActivationMemoryValidationView>& validation_views,
     const ActivationMemoryBuildConfig& config) {
+    std::vector<ActivationMemoryCalibrationView> unscoped_negatives;
+    unscoped_negatives.reserve(calibration_negatives.size());
+    for (const auto& negative : calibration_negatives) {
+        unscoped_negatives.push_back({std::nullopt, negative});
+    }
+    return build(
+        construction_views, unscoped_negatives, validation_views, config);
+}
+
+ActivationMemoryBuildResult ActivationMemoryBuilder::build(
+    const std::vector<ActivationMemoryConstructionView>& construction_views,
+    const std::vector<ActivationMemoryCalibrationView>& calibration_negatives,
+    const std::vector<ActivationMemoryValidationView>& validation_views,
+    const ActivationMemoryBuildConfig& config) {
     if (construction_views.empty() || calibration_negatives.empty() ||
         validation_views.empty() || config.query_dimension == 0) {
         throw std::invalid_argument("activation-memory construction inputs are incomplete");
@@ -263,6 +334,11 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
             ActivationProjectionStrategy::association_signal) {
         throw std::invalid_argument(
             "activation-memory projection strategy is invalid");
+    }
+    if (config.validation_scope != ActivationValidationScope::global &&
+        config.validation_scope != ActivationValidationScope::association) {
+        throw std::invalid_argument(
+            "activation-memory validation scope is invalid");
     }
     const auto hidden_dimension = construction_views.front().query_action_state.size();
     if (hidden_dimension == 0 || config.query_dimension > hidden_dimension) {
@@ -283,9 +359,19 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         associations[view.association].push_back(index);
     }
     for (const auto& negative : calibration_negatives) {
-        validate_sequence(negative, hidden_dimension, "calibration negative");
+        validate_sequence(
+            negative.address_candidates,
+            hidden_dimension,
+            "calibration negative");
+        if (negative.association &&
+            associations.find(*negative.association) == associations.end()) {
+            throw std::invalid_argument(
+                "calibration negative names an unknown association");
+        }
         projection_states.insert(
-            projection_states.end(), negative.begin(), negative.end());
+            projection_states.end(),
+            negative.address_candidates.begin(),
+            negative.address_candidates.end());
     }
     for (const auto& validation : validation_views) {
         validate_sequence(validation.address_candidates, hidden_dimension, "validation view");
@@ -304,12 +390,18 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
                 project_normalized(state, projection, config.query_dimension));
         }
     }
-    std::vector<std::vector<float>> projected_negatives;
+    struct ProjectedNegative {
+        std::optional<std::size_t> association;
+        std::vector<std::vector<float>> states;
+    };
+    std::vector<ProjectedNegative> projected_negatives;
     for (const auto& negative : calibration_negatives) {
-        for (const auto& state : negative) {
-            projected_negatives.push_back(
+        ProjectedNegative projected{negative.association, {}};
+        for (const auto& state : negative.address_candidates) {
+            projected.states.push_back(
                 project_normalized(state, projection, config.query_dimension));
         }
+        projected_negatives.push_back(std::move(projected));
     }
 
     ActivationMemoryBuildResult result;
@@ -327,7 +419,16 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
 
     for (const auto& association : associations) {
         const auto& members = association.second;
-        auto negatives = projected_negatives;
+        std::vector<std::vector<float>> negatives;
+        for (const auto& negative : projected_negatives) {
+            if (!negative.association ||
+                *negative.association == association.first) {
+                negatives.insert(
+                    negatives.end(),
+                    negative.states.begin(),
+                    negative.states.end());
+            }
+        }
         for (std::size_t index = 0; index < construction_views.size(); ++index) {
             if (construction_views[index].association != association.first) {
                 negatives.insert(
@@ -397,31 +498,58 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         }
     }
     for (const auto& negative : calibration_negatives) {
-        const auto grouped = nearest_candidate_grouped(
-            negative,
-            projection,
-            config.query_dimension,
-            result.keys,
-            key_groups);
-        const auto& selection = grouped.first;
+        ActivationMemorySelection selection;
+        float group_margin = 0.0F;
+        if (negative.association) {
+            selection = nearest_candidate_in_association(
+                negative.address_candidates,
+                projection,
+                config.query_dimension,
+                result.keys,
+                key_groups,
+                *negative.association);
+        } else {
+            const auto grouped = nearest_candidate_grouped(
+                negative.address_candidates,
+                projection,
+                config.query_dimension,
+                result.keys,
+                key_groups);
+            selection = grouped.first;
+            group_margin = grouped.second;
+        }
         result.negative_selections.push_back(selection);
         minimum_negative = std::min(minimum_negative, selection.distance);
         maximum_negative_group_margin = std::max(
-            maximum_negative_group_margin, grouped.second);
+            maximum_negative_group_margin, group_margin);
     }
 
     float maximum_validation = 0.0F;
     auto minimum_validation_group_margin = std::numeric_limits<float>::max();
     for (std::size_t index = 0; index < validation_views.size(); ++index) {
         const auto& validation = validation_views[index];
-        const auto grouped = nearest_candidate_grouped(
-            validation.address_candidates,
-            projection,
-            config.query_dimension,
-            result.keys,
-            key_groups);
-        const auto& selection = grouped.first;
-        if (construction_views[selection.key].association != validation.association) {
+        ActivationMemorySelection selection;
+        float group_margin = 0.0F;
+        if (config.validation_scope == ActivationValidationScope::association) {
+            selection = nearest_candidate_in_association(
+                validation.address_candidates,
+                projection,
+                config.query_dimension,
+                result.keys,
+                key_groups,
+                validation.association);
+        } else {
+            const auto grouped = nearest_candidate_grouped(
+                validation.address_candidates,
+                projection,
+                config.query_dimension,
+                result.keys,
+                key_groups);
+            selection = grouped.first;
+            group_margin = grouped.second;
+        }
+        if (config.validation_scope == ActivationValidationScope::global &&
+            construction_views[selection.key].association != validation.association) {
             throw std::runtime_error(
                 "validation view " + std::to_string(index) + " for association " +
                 std::to_string(validation.association) + " selected key " +
@@ -432,7 +560,7 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         result.validation_selections.push_back(selection);
         maximum_validation = std::max(maximum_validation, selection.distance);
         minimum_validation_group_margin = std::min(
-            minimum_validation_group_margin, grouped.second);
+            minimum_validation_group_margin, group_margin);
     }
     if (!(maximum_validation < minimum_negative) ||
         !std::isfinite(maximum_validation) || !std::isfinite(minimum_negative)) {

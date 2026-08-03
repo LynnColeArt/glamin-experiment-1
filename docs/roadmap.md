@@ -68,6 +68,9 @@ A rollback reproduced the baseline logits exactly in the same process.
   set; record partial generalization (4/12) and the compact-syntax boundary.
 - [x] Generalize association-signal relation evidence across a second frozen
   set (12/12) and isolate action-gate calibration as the end-to-end boundary.
+- [x] Calibrate action authorization against only tuple-local, runtime-reachable
+  controls; route 12/12 new frozen paraphrases and abstain exactly on 12/12
+  tuple-matched wrong intents.
 - [ ] Generalize relation and action-context representations to frozen,
   previously unseen paraphrase sets.
 - [ ] Persist and live-swap the complete factorized generation atomically.

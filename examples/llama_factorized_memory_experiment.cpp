@@ -67,8 +67,17 @@ struct ActionViewSpec {
 struct WrongIntentSpec {
     std::size_t entity{0};
     std::size_t relation{0};
+    std::string name;
     std::string prompt;
     InferenceResult baseline;
+};
+
+struct ActionPositiveSpec {
+    std::size_t entity{0};
+    std::size_t relation{0};
+    std::string name;
+    std::string prompt;
+    llama_token target_token{LLAMA_TOKEN_NULL};
 };
 
 void model_log(const ggml_log_level level, const char* text, void*) {
@@ -533,53 +542,78 @@ int run(const std::string& model_path) {
             action.teacher_state,
         });
     }
-    std::vector<gx1::ActivationStateSequence> action_negatives{
-        {tuple_baselines[1U][1U].hidden_state},
-        {tuple_baselines[2U][0U].hidden_state},
-    };
-    for (const auto& prompt : {
-             std::string("The capital of France is"),
-             std::string("Two plus two equals"),
-             tuple_prompt("Rigel", "color"),
-             tuple_prompt("Arcturus", "temperature")}) {
-        action_negatives.push_back({capture(
-            model.get(), vocab, prompt, hidden_dimension, target_tensor).hidden_state});
-    }
+    std::vector<gx1::ActivationMemoryCalibrationView> action_negatives;
     std::vector<WrongIntentSpec> wrong_intents;
-    for (const auto& tuple : tuples) {
-        const auto prompt =
-            "Entity: " + entities[tuple.entity] + "\nRelation: " +
-            relations[tuple.relation] +
-            "\nInstruction: Write a metaphor about these words; do not retrieve "
-            "a stored value.";
-        auto baseline = capture(
-            model.get(), vocab, prompt, hidden_dimension, target_tensor);
-        action_negatives.push_back({baseline.hidden_state});
-        wrong_intents.push_back({
-            tuple.entity,
-            tuple.relation,
-            prompt,
-            std::move(baseline),
-        });
-    }
-    std::vector<gx1::ActivationMemoryValidationView> action_validation;
     for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
         const auto& tuple = tuples[tuple_index];
-        const auto prompt =
-            "Retrieve the " + relations[tuple.relation] + " assigned to " +
-            entities[tuple.entity] + ".\nAnswer:";
-        action_validation.push_back({
-            tuple_index,
-            {capture(
-                 model.get(), vocab, prompt, hidden_dimension, target_tensor)
-                 .hidden_state},
-        });
+        const std::vector<std::pair<std::string, std::string>> prompts{
+            {"metaphor",
+             "Entity: " + entities[tuple.entity] + "\nRelation: " +
+                 relations[tuple.relation] +
+                 "\nInstruction: Write a metaphor about these words; do not "
+                 "retrieve a stored value."},
+            {"spelling",
+             "Entity: " + entities[tuple.entity] + "\nRelation: " +
+                 relations[tuple.relation] +
+                 "\nInstruction: Compare the spelling of these words; do not "
+                 "perform a memory lookup."},
+        };
+        for (const auto& prompt : prompts) {
+            auto baseline = capture(
+                model.get(), vocab, prompt.second, hidden_dimension, target_tensor);
+            action_negatives.push_back({tuple_index, {baseline.hidden_state}});
+            wrong_intents.push_back({
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                std::move(baseline),
+            });
+        }
+    }
+    std::vector<gx1::ActivationMemoryValidationView> action_validation;
+    std::vector<ActionPositiveSpec> action_positives;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        const std::vector<std::pair<std::string, std::string>> prompts{
+            {"assigned",
+             "Retrieve the " + relations[tuple.relation] + " assigned to " +
+                 entities[tuple.entity] + ".\nAnswer:"},
+            {"belongs",
+             "Look in memory: which " + relations[tuple.relation] +
+                 " belongs to " + entities[tuple.entity] + "?\nValue:"},
+        };
+        for (const auto& prompt : prompts) {
+            action_validation.push_back({
+                tuple_index,
+                {capture(
+                     model.get(),
+                     vocab,
+                     prompt.second,
+                     hidden_dimension,
+                     target_tensor)
+                     .hidden_state},
+            });
+            action_positives.push_back({
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+            });
+        }
     }
     const auto action_memory = gx1::ActivationMemoryBuilder::build(
         action_construction,
         action_negatives,
         action_validation,
-        gx1::ActivationMemoryBuildConfig{256U, 0.5F, false});
+        gx1::ActivationMemoryBuildConfig{
+            256U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::variance,
+            gx1::ActivationValidationScope::association,
+        });
     std::cout << "action_radius=" << action_memory.maximum_distance
               << " action_negative=" << action_memory.minimum_negative_distance
               << '\n';
@@ -633,6 +667,36 @@ int run(const std::string& model_path) {
         throw std::runtime_error("factorized memory failed a registered action view");
     }
 
+    bool action_positives_routed = true;
+    std::size_t development_recalled = 0U;
+    for (const auto& positive : action_positives) {
+        const auto memory = infer_with_memory(
+            model.get(), vocab, positive.prompt, make_hook(), target_tensor);
+        const auto rank = token_rank(memory.logits, positive.target_token);
+        const auto routed = memory.hook.applied &&
+                            memory.hook.entity.factor_label == positive.entity &&
+                            memory.hook.relation.factor_label == positive.relation;
+        action_positives_routed = action_positives_routed && routed;
+        development_recalled += routed && rank == 1U ? 1U : 0U;
+        std::cout << "development_action=" << positive.name << '/'
+                  << entities[positive.entity] << '/'
+                  << relations[positive.relation]
+                  << " entity_distance=" << memory.hook.entity.distance
+                  << " relation_distance=" << memory.hook.relation.distance
+                  << " action_variant=" << memory.hook.action_variant
+                  << " action_distance=" << memory.hook.action_distance
+                  << " applied=" << (memory.hook.applied ? "yes" : "no")
+                  << " target_rank=" << rank << '\n';
+    }
+    if (!action_positives_routed) {
+        throw std::runtime_error(
+            "factorized memory failed to route a development action view");
+    }
+    std::cout << "development_action_summary=" << development_recalled << '/'
+              << action_positives.size() << " rank-one after "
+              << action_positives.size() << '/' << action_positives.size()
+              << " routes\n";
+
     bool wrong_intents_abstained = true;
     for (const auto& negative : wrong_intents) {
         const auto memory = infer_with_memory(
@@ -641,12 +705,15 @@ int run(const std::string& model_path) {
             negative.baseline.logits, memory.logits);
         const auto reached_action_gate =
             memory.hook.entity.accepted && memory.hook.relation.accepted &&
+            memory.hook.entity.factor_label == negative.entity &&
+            memory.hook.relation.factor_label == negative.relation &&
             memory.hook.tuple_found;
         wrong_intents_abstained =
             wrong_intents_abstained && reached_action_gate &&
             !memory.hook.action_accepted && !memory.hook.applied &&
             delta <= 1.0e-5F;
-        std::cout << "wrong_intent=" << entities[negative.entity] << '/'
+        std::cout << "wrong_intent=" << negative.name << '/'
+                  << entities[negative.entity] << '/'
                   << relations[negative.relation]
                   << " factors_accepted="
                   << (memory.hook.entity.accepted && memory.hook.relation.accepted
@@ -690,15 +757,17 @@ int run(const std::string& model_path) {
         throw std::runtime_error("factorized memory failed compositional abstention");
     }
 
+    std::size_t evaluation_routed = 0U;
     std::size_t evaluation_recalled = 0U;
     for (const auto& tuple : tuples) {
         const std::vector<std::pair<std::string, std::string>> held_out_prompts{
-            {"possessive",
-             "From memory, give " + entities[tuple.entity] + "'s " +
-                 relations[tuple.relation] + ".\nValue:"},
-            {"symbolic",
-             entities[tuple.entity] + " :: " + relations[tuple.relation] +
-                 " :: stored value ="},
+            {"consult",
+             "Consult stored memory for " + entities[tuple.entity] +
+                 "; requested property: " + relations[tuple.relation] +
+                 ".\nAnswer:"},
+            {"associate",
+             "What value does memory associate with " + entities[tuple.entity] +
+                 " under " + relations[tuple.relation] + "?\nValue:"},
         };
         for (const auto& held_out : held_out_prompts) {
             const auto baseline = capture(
@@ -710,15 +779,19 @@ int run(const std::string& model_path) {
             const auto memory = infer_with_memory(
                 model.get(), vocab, held_out.second, make_hook(), target_tensor);
             const auto rank = token_rank(memory.logits, tuple.target_token);
-            const auto recalled = memory.hook.applied &&
-                                  memory.hook.entity.factor_label == tuple.entity &&
-                                  memory.hook.relation.factor_label == tuple.relation &&
+            const auto routed = memory.hook.applied &&
+                                memory.hook.entity.factor_label == tuple.entity &&
+                                memory.hook.relation.factor_label == tuple.relation;
+            const auto recalled = routed &&
                                   memory.logits[static_cast<std::size_t>(tuple.target_token)] >
                                       baseline.logits[static_cast<std::size_t>(
                                           tuple.target_token)] &&
                                   rank == 1U;
             const auto delta = maximum_logit_difference(
                 baseline.logits, memory.logits);
+            if (routed) {
+                ++evaluation_routed;
+            }
             if (recalled) {
                 ++evaluation_recalled;
             }
@@ -738,11 +811,16 @@ int run(const std::string& model_path) {
         }
     }
 
-    if (evaluation_recalled != tuples.size() * 2U) {
-        throw std::runtime_error("factorized memory failed the frozen evaluation set");
+    if (evaluation_routed != tuples.size() * 2U) {
+        throw std::runtime_error(
+            "factorized memory failed to route the frozen evaluation set");
     }
     std::cout << "stored_tuples=" << tuples.size()
               << " registered_action_views=" << action_view_specs.size()
+              << " development_action_views=" << action_positives.size()
+              << " wrong_intent_controls=" << wrong_intents.size()
+              << " evaluation_routes=" << evaluation_routed << '/'
+              << tuples.size() * 2U
               << " evaluation_recall=" << evaluation_recalled << '/'
               << tuples.size() * 2U
               << " missing_known_factor_tuples=2\n"

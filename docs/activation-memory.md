@@ -64,6 +64,19 @@ cross-association keys, retaining 25 percent of the observed negative gap as a
 safety margin. This remains a small synthetic calibration set, not a production
 thresholding method.
 
+The builder also supports topology-aware calibration for a downstream space
+that is searched only after an upstream exact join. A calibration negative may
+carry an association label, and validation may be configured with
+`ActivationValidationScope::association`. In that mode, both are compared only
+with keys belonging to the association that runtime can actually search.
+Unlabelled negatives and the default validation mode remain global.
+
+Association scope is not a convenience for improving a weak boundary. It is
+valid only when runtime has already established the same scope. Using it for a
+globally searched space would conceal reachable competitors and produce an
+unsafe gate. The factorized experiment uses it only for the action gate, after
+entity and relation evidence have selected an exact reviewed tuple.
+
 ## Qwen3 Result
 
 The passing scaled run used Qwen3 4B Q4_K_M, a 256-dimensional variance-selected

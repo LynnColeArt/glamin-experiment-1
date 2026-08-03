@@ -180,15 +180,64 @@ outside the negative class demonstrated to reach the action gate. This is
 post-evaluation evidence of a potentially usable intent gap, not authorization
 to retune against this frozen set.
 
+## Runtime-Topology-Aware Action Probe
+
+The fourth probe implemented the gate-local calibration suggested above. The
+builder now accepts association-scoped validation and calibration negatives.
+Because runtime searches action variants only after the exact entity–relation
+join, each action positive and wrong-intent control is compared only with the
+six variants of its reachable tuple. Entity and relation calibration remains
+global. Legacy controls that cannot reach the action gate were removed from
+that gate's calibration corpus but remain tested at their actual factor or
+tuple boundary.
+
+The new development corpus added two unseen lookup forms and two tuple-matched
+wrong intents for every stored tuple. The resulting boundaries were:
+
+| Space | Maximum valid distance | Nearest negative boundary |
+| --- | ---: | ---: |
+| Entity | `0.0510935` | `0.0694399` |
+| Association-signal relation | `1.09326` | `1.28097` |
+| Tuple-scoped projected action | `0.0823871` | `0.0974977` |
+
+All 36 registered actions still produced rank-one targets. All 12 development
+lookup forms reached the intended action; 7/12 produced the target at rank one
+with the canonical residual strength of `1.0`. A development-only strength
+sweep improved the aggregate to 11/12 but made the remaining Draco/color miss
+worse, showing that the failure was not merely a weak intervention. The frozen
+run therefore retained the unscaled residual.
+
+All 12 tuple-matched metaphor and spelling controls passed both factor gates
+and the exact tuple join, then failed the action gate at distances from
+`0.0974977` through `0.164`. Every control left every logit exactly unchanged.
+The two absent known-factor tuples also remained exact no-ops.
+
+Before its first run, the next evaluation set was frozen with two new forms:
+
+- `Consult stored memory for ENTITY; requested property: REL.\nAnswer:`
+- `What value does memory associate with ENTITY under REL?\nValue:`
+
+The intended entity, relation, tuple, and action were selected on **12/12**
+prompts. Action distances ranged from `0.0121598` to `0.0546432`, safely below
+the independently calibrated radius. The residual produced the stored target
+at rank one on **9/12** prompts: all six `consult` forms and three of six
+`associate` forms. The misses were Bellatrix/color at rank 7, Draco/color at
+rank 70, and Draco/material at rank 7. No mechanism or threshold was changed
+after observing this frozen result.
+
+This establishes generalization of the complete authorization path on this
+small split: broad factor evidence can resolve a specific tuple, and a live
+action gate can distinguish novel retrieval language from tuple-matched wrong
+intent. It does not establish a form-invariant memory action. The stored
+teacher-minus-query residual remains view-conditioned; a nearby action address
+can authorize the right tuple while its selected residual fails to transport
+the new hidden state to the intended answer state.
+
 ## Next Experiment
 
-The next probe should:
-
-1. calibrate each gate only against negatives that can reach that gate in the
-   runtime topology, using a new development corpus;
-2. compare the existing tuple-local action prototypes with a learned low-rank
-   action transform or association-signal action projection;
-3. keep same-factor wrong-intent controls as the action gate's principal
-   negative class;
-4. freeze another paraphrase evaluation set before running it; and
-5. persist and live-swap the complete factorized generation.
+The next probe should keep the frozen result untouched and replace nearest
+view-conditioned residual transfer with an action representation that can map
+a neighborhood, such as a reviewed low-rank transform or a later-layer target
+state. It should use a new development/evaluation split, retain tuple-matched
+wrong intents, and then persist and live-swap the complete factorized
+generation atomically.

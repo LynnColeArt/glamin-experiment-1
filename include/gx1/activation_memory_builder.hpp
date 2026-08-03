@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <vector>
 
 namespace gx1 {
@@ -21,6 +22,11 @@ struct ActivationMemoryValidationView {
     ActivationStateSequence address_candidates;
 };
 
+struct ActivationMemoryCalibrationView {
+    std::optional<std::size_t> association;
+    ActivationStateSequence address_candidates;
+};
+
 struct ActivationMemorySelection {
     std::size_t key{0};
     std::size_t candidate{0};
@@ -32,12 +38,19 @@ enum class ActivationProjectionStrategy : std::uint8_t {
     association_signal = 1,
 };
 
+enum class ActivationValidationScope : std::uint8_t {
+    global = 0,
+    association = 1,
+};
+
 struct ActivationMemoryBuildConfig {
     std::uint32_t query_dimension{0};
     float gate_interpolation{0.5F};
     bool include_cross_association_keys_in_gate{true};
     ActivationProjectionStrategy projection_strategy{
         ActivationProjectionStrategy::variance};
+    ActivationValidationScope validation_scope{
+        ActivationValidationScope::global};
 };
 
 struct ActivationMemoryBuildResult {
@@ -62,6 +75,11 @@ public:
     [[nodiscard]] static ActivationMemoryBuildResult build(
         const std::vector<ActivationMemoryConstructionView>& construction_views,
         const std::vector<ActivationStateSequence>& calibration_negatives,
+        const std::vector<ActivationMemoryValidationView>& validation_views,
+        const ActivationMemoryBuildConfig& config);
+    [[nodiscard]] static ActivationMemoryBuildResult build(
+        const std::vector<ActivationMemoryConstructionView>& construction_views,
+        const std::vector<ActivationMemoryCalibrationView>& calibration_negatives,
         const std::vector<ActivationMemoryValidationView>& validation_views,
         const ActivationMemoryBuildConfig& config);
 };

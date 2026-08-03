@@ -51,6 +51,9 @@ recalls. A subsequent association-signal relation projection accepted the
 intended relation on 12/12 new frozen prompts, while its deliberately strict
 action gate produced 0/12 end-to-end recalls. Six tuple-matched wrong-intent
 controls reached that gate and abstained exactly, exposing gate-local
-calibration as the next boundary. Broad action-form generalization, persisted
-factorized artifacts, trained adapters, durable traces, and external procedural
-actions remain future work.
+calibration as the next boundary. Topology-aware action calibration now routes
+12/12 further frozen paraphrases while 12/12 tuple-matched wrong intents and two
+missing tuples remain exact no-ops. The selected residual produces rank-one
+answers on 9/12, isolating form-invariant action transfer as the next boundary.
+Persisted factorized artifacts, trained adapters, durable traces, and external
+procedural actions remain future work.

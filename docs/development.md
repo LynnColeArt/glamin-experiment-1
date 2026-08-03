@@ -130,11 +130,12 @@ validation prompts, 16 held-out positive prompts, and 16 negative controls with
 exact abstention. The artifact persists the selection policy. A separate
 factorized experiment now retrieves entity and relation evidence from
 independently calibrated Glamin spaces, performs an exact tuple join, and gates
-a contextual residual. It passes 18 registered action contexts and exactly
-abstains on two missing known-factor tuples plus 12 unfamiliar contexts. The
-next boundary is representation-level paraphrase generalization, persistence of
-the complete factorized contract, batched scanning, and a substantially larger
-negative-control set.
+a contextual residual. Its latest topology-aware probe passes 36 registered
+action contexts, routes 12/12 frozen paraphrases, and exactly abstains on two
+missing known-factor tuples plus 12 tuple-matched wrong intents. The selected
+residual produces rank-one targets on 9/12 frozen prompts. The next boundary is
+form-invariant action transfer, persistence of the complete factorized
+contract, batched scanning, and a substantially larger negative-control set.
 
 Run the factorized frozen-model probe with:
 
