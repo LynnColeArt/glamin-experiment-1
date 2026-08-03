@@ -744,8 +744,6 @@ int run(const std::string& model_path) {
     }
 
     auto entity_address_entity_validation = entity_validation;
-    auto entity_address_relation_validation = relation_validation;
-    auto entity_address_action_validation = action_validation;
     std::vector<EntityAddressProbeSpec> entity_address_development;
     for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
         const auto& tuple = tuples[tuple_index];
@@ -759,12 +757,6 @@ int run(const std::string& model_path) {
                 target_tensor);
             entity_address_entity_validation.emplace_back(
                 tuple.entity, inference);
-            entity_address_relation_validation.emplace_back(
-                tuple.relation, inference);
-            entity_address_action_validation.push_back({
-                tuple_index,
-                {inference.hidden_state},
-            });
             entity_address_development.push_back({
                 tuple.entity,
                 tuple.relation,
@@ -797,22 +789,6 @@ int run(const std::string& model_path) {
         entity_negatives,
         entity_address_entity_validation,
         gx1::ActivationProjectionStrategy::association_signal);
-    const auto entity_address_relation_memory = build_factor(
-        relation_prompts,
-        relation_negatives,
-        entity_address_relation_validation,
-        gx1::ActivationProjectionStrategy::association_signal);
-    const auto entity_address_action_memory = gx1::ActivationMemoryBuilder::build(
-        action_construction,
-        action_negatives,
-        entity_address_action_validation,
-        gx1::ActivationMemoryBuildConfig{
-            256U,
-            0.5F,
-            false,
-            gx1::ActivationProjectionStrategy::variance,
-            gx1::ActivationValidationScope::association,
-        });
     std::cout << "action_radius=" << action_memory.maximum_distance
               << " action_negative=" << action_memory.minimum_negative_distance
               << '\n';
@@ -822,10 +798,7 @@ int run(const std::string& model_path) {
               << entity_address_association_memory.maximum_distance
               << " entity_address_negative="
               << entity_address_association_memory.minimum_negative_distance
-              << " entity_address_relation_radius="
-              << entity_address_relation_memory.maximum_distance
-              << " entity_address_action_radius="
-              << entity_address_action_memory.maximum_distance << '\n';
+              << '\n';
 
     auto payloads = std::make_shared<gx1::TupleResidualLedger>();
     for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
@@ -844,16 +817,6 @@ int run(const std::string& model_path) {
             tuple.late_teacher.hidden_state);
     }
 
-    auto entity_address_payloads = std::make_shared<gx1::TupleResidualLedger>();
-    for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
-        const auto& action = action_view_specs[index];
-        entity_address_payloads->insert_variant(
-            action.entity,
-            action.relation,
-            entity_address_action_memory.keys[index],
-            entity_address_action_memory.residuals[index]);
-    }
-
     const auto entity_address_variance_generation = generations.mount_flat(
         "entity-address-variance",
         entity_address_variance_memory.query_dimension,
@@ -862,10 +825,6 @@ int run(const std::string& model_path) {
         "entity-address-association",
         entity_address_association_memory.query_dimension,
         flatten(entity_address_association_memory.keys));
-    const auto entity_address_relation_generation = generations.mount_flat(
-        "entity-address-relations",
-        entity_address_relation_memory.query_dimension,
-        flatten(entity_address_relation_memory.keys));
 
     const auto make_hook = [&]() {
         generations.activate(entity_generation);
@@ -893,19 +852,19 @@ int run(const std::string& model_path) {
             association_signal ? entity_address_association_generation
                                : entity_address_variance_generation);
         auto entity_pin = generations.pin_active();
-        generations.activate(entity_address_relation_generation);
+        generations.activate(relation_generation);
         auto relation_pin = generations.pin_active();
         return gx1::FactorizedLayerMemoryHook(
             std::move(entity_pin),
             factor_config(candidate_memory),
             entity_labels,
             std::move(relation_pin),
-            factor_config(entity_address_relation_memory),
+            factor_config(relation_memory),
             relation_labels,
             1.0F,
-            entity_address_payloads,
-            entity_address_action_memory.maximum_distance,
-            factor_config(entity_address_action_memory));
+            payloads,
+            action_memory.maximum_distance,
+            factor_config(action_memory));
     };
 
     bool action_views_recalled = true;

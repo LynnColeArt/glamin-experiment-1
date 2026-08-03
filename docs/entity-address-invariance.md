@@ -24,10 +24,10 @@ development views, calibration negatives, labels, and query width:
 2. an association-signal projection that favors coordinates separating entity
    groups while suppressing within-entity surface-form variation.
 
-Both candidates use the same association-signal relation memory, exact tuple
-ledger, tuple-local action memory, action gate, target-state ledger, tensor
-locations, and full-state interpolation. Only the entity projection strategy
-differs.
+Both candidates use the unchanged association-signal relation memory, exact
+tuple ledger, tuple-local action memory, action gate, target-state ledger,
+tensor locations, and full-state interpolation from the preceding probe. Only
+the entity projection strategy and independently calibrated entity gate differ.
 
 ## Development Split
 
@@ -37,10 +37,10 @@ Each of the six registered tuples has three development forms, for 18 prompts:
 - record: `Object record { name: "ENTITY", field: "REL" }`
 - path: `memory/object/ENTITY/attribute/REL/value=`
 
-These forms may calibrate the candidate entity, relation, and tuple-local action
-gates. The association-signal system must route all 18 and produce the stored
-target at rank one before the frozen split is run. The existing 12 wrong-intent
-controls and two missing-tuple controls must remain exact no-ops.
+These forms may calibrate only the candidate entity gates. The association-signal
+system must route all 18 through the unchanged downstream gates and produce the
+stored target at rank one before the frozen split is run. The existing 12
+wrong-intent controls and two missing-tuple controls must remain exact no-ops.
 
 ## Frozen Evaluation Split
 
