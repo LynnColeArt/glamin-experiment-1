@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "gx1/factorized_memory_hook.hpp"
 #include "gx1/hidden_state_hook.hpp"
 
 struct ggml_tensor;
@@ -44,6 +45,38 @@ private:
     std::optional<HiddenStateHookResult> last_result_;
     std::optional<std::size_t> address_token_index_;
     AddressSelectionPolicy address_selection_{AddressSelectionPolicy::last_token};
+    std::size_t invocation_count_{0};
+};
+
+class LlamaFactorizedGlaminHook final {
+public:
+    LlamaFactorizedGlaminHook(
+        FactorizedLayerMemoryHook hook,
+        std::string target_tensor);
+
+    LlamaFactorizedGlaminHook(const LlamaFactorizedGlaminHook&) = delete;
+    LlamaFactorizedGlaminHook& operator=(const LlamaFactorizedGlaminHook&) = delete;
+    LlamaFactorizedGlaminHook(LlamaFactorizedGlaminHook&&) = delete;
+    LlamaFactorizedGlaminHook& operator=(LlamaFactorizedGlaminHook&&) = delete;
+
+    [[nodiscard]] static bool evaluate(
+        ggml_tensor* tensor,
+        bool ask,
+        void* user_data) noexcept;
+
+    void throw_if_failed() const;
+    [[nodiscard]] bool failed() const noexcept;
+    [[nodiscard]] const std::string& error() const noexcept;
+    [[nodiscard]] std::size_t invocation_count() const noexcept;
+    [[nodiscard]] const std::optional<FactorizedMemoryResult>& last_result() const noexcept;
+
+private:
+    [[nodiscard]] bool evaluate_tensor(ggml_tensor* tensor, bool ask);
+
+    FactorizedLayerMemoryHook hook_;
+    std::string target_tensor_;
+    std::string error_;
+    std::optional<FactorizedMemoryResult> last_result_;
     std::size_t invocation_count_{0};
 };
 

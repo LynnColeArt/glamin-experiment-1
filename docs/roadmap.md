@@ -62,7 +62,11 @@ A rollback reproduced the baseline logits exactly in the same process.
   held-out retrieval and natural-question phrasing.
 - [x] Probe two overlapping relations per entity and record the single-vector
   addressing and abstention boundary.
-- [ ] Implement factorized entity/relation evidence and a gated tuple join.
+- [x] Implement factorized entity/relation evidence, an exact tuple join, and a
+  contextual action-distance gate inside inference.
+- [ ] Generalize relation and action-context representations to frozen,
+  previously unseen paraphrase sets.
+- [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and
   exact abstention on a 16-prompt negative set.

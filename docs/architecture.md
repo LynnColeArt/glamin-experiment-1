@@ -121,6 +121,20 @@ residual ledger loaded into the host. The intended trained form remains
 `gate(h, r) * project_out(r)`. A production design could also overlap
 asynchronous traversal with independent model work where the graph permits it.
 
+The implemented factorized probe adds a bounded join path:
+
+```text
+entity = gated_search(entity_space, token_rows)
+relation = gated_search(relation_space, token_rows)
+variants = reviewed_tuple_ledger[entity, relation]
+action = gated_nearest(h_action, variants)
+h_action' = h_action + fixed_gate * action.residual
+```
+
+The entity, relation, exact-tuple, and action-context checks all fail closed.
+The probe currently keeps tuple variants in host memory; a deployable
+factorized generation must persist and hash-bind the complete join contract.
+
 ## Request Lifecycle
 
 ```text

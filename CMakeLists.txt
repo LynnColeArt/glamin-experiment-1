@@ -143,6 +143,7 @@ if(GX1_BUILD_GLAMIN_BACKEND)
         gx1_hidden_state_hook
         STATIC
         src/activation_memory_builder.cpp
+        src/factorized_memory_hook.cpp
         src/hidden_state_hook.cpp
         src/hook_artifact.cpp
     )
@@ -294,6 +295,17 @@ if(GX1_BUILD_GLAMIN_BACKEND)
                 gx1_llama_glamin_hook
         )
         gx1_enable_warnings(gx1_llama_activation_memory_experiment)
+
+        add_executable(
+            gx1_llama_factorized_memory_experiment
+            examples/llama_factorized_memory_experiment.cpp
+        )
+        target_link_libraries(
+            gx1_llama_factorized_memory_experiment
+            PRIVATE
+                gx1_llama_glamin_hook
+        )
+        gx1_enable_warnings(gx1_llama_factorized_memory_experiment)
 
         if(BUILD_TESTING)
             add_executable(

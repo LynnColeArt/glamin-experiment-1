@@ -22,6 +22,8 @@
   scaled eight-association held-out recall and abstention experiment.
 - [Multi-relation addressing probe](multi-relation-probe.md) records the
   calibrated boundary exposed by overlapping entity–relation tuples.
+- [Factorized entity–relation memory](factorized-memory.md) records the bounded
+  two-space tuple join, contextual action gate, and frozen-Qwen result.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -40,6 +42,10 @@ path searches Fortran-owned indexes, loads compiler-emitted persistent
 artifacts, mounts complete hash-bound hook generations, and injects their
 generation-qualified residuals into a live Qwen3 graph. Eight activation-derived
 associations now produce their intended next tokens across 16 held-out prompts
-while 16 controls abstain exactly. Broad multi-relation semantic generalization,
-trained adapters, durable traces, and procedural mini-app execution remain
-future work.
+while 16 controls abstain exactly. A second in-inference hook independently
+retrieves entity and relation evidence, authorizes exact tuples, and selects a
+bounded contextual action: 18 registered contexts pass at rank one, while two
+missing known-factor tuples and 12 unfamiliar contexts abstain exactly. Broad
+multi-relation paraphrase generalization, persisted factorized artifacts,
+trained adapters, durable traces, and external procedural actions remain future
+work.

@@ -179,6 +179,80 @@ bool LlamaGlaminHook::evaluate_tensor(ggml_tensor* tensor, const bool ask) {
     return true;
 }
 
+LlamaFactorizedGlaminHook::LlamaFactorizedGlaminHook(
+    FactorizedLayerMemoryHook hook,
+    std::string target_tensor)
+    : hook_(std::move(hook)), target_tensor_(std::move(target_tensor)) {
+    if (target_tensor_.empty() || target_tensor_.find('\0') != std::string::npos) {
+        throw std::invalid_argument("llama.cpp factorized hook target tensor is invalid");
+    }
+}
+
+bool LlamaFactorizedGlaminHook::evaluate(
+    ggml_tensor* tensor,
+    const bool ask,
+    void* user_data) noexcept {
+    if (user_data == nullptr) {
+        return false;
+    }
+    auto* hook = static_cast<LlamaFactorizedGlaminHook*>(user_data);
+    try {
+        return hook->evaluate_tensor(tensor, ask);
+    } catch (const std::exception& error) {
+        hook->error_ = error.what();
+        return false;
+    } catch (...) {
+        hook->error_ = "unknown failure in llama.cpp factorized memory callback";
+        return false;
+    }
+}
+
+void LlamaFactorizedGlaminHook::throw_if_failed() const {
+    if (!error_.empty()) {
+        throw std::runtime_error(error_);
+    }
+}
+
+bool LlamaFactorizedGlaminHook::failed() const noexcept {
+    return !error_.empty();
+}
+
+const std::string& LlamaFactorizedGlaminHook::error() const noexcept {
+    return error_;
+}
+
+std::size_t LlamaFactorizedGlaminHook::invocation_count() const noexcept {
+    return invocation_count_;
+}
+
+const std::optional<FactorizedMemoryResult>&
+LlamaFactorizedGlaminHook::last_result() const noexcept {
+    return last_result_;
+}
+
+bool LlamaFactorizedGlaminHook::evaluate_tensor(
+    ggml_tensor* tensor,
+    const bool ask) {
+    if (tensor == nullptr) {
+        throw std::invalid_argument("llama.cpp callback supplied a null tensor");
+    }
+    const bool matches = std::strcmp(tensor->name, target_tensor_.c_str()) == 0;
+    if (ask) {
+        return matches;
+    }
+    if (!matches) {
+        return true;
+    }
+
+    const auto last_token = last_token_index(tensor);
+    auto hidden_state = read_hidden_state(tensor, hook_.hidden_dimension(), last_token);
+    last_result_ = hook_.apply_nearest(
+        read_all_hidden_states(tensor, hook_.hidden_dimension()), hidden_state);
+    write_last_hidden_state(tensor, hidden_state);
+    ++invocation_count_;
+    return true;
+}
+
 LlamaHiddenStateCapture::LlamaHiddenStateCapture(
     const std::uint32_t hidden_dimension,
     std::string target_tensor,

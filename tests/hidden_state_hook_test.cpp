@@ -1,3 +1,4 @@
+#include "gx1/factorized_memory_hook.hpp"
 #include "gx1/hidden_state_hook.hpp"
 #include "gx1/hook_artifact.hpp"
 
@@ -279,6 +280,92 @@ void test_prefix_mean_address_candidates() {
         "prefix-mean addressing returned the wrong cumulative states");
 }
 
+void test_factorized_tuple_join_and_abstention() {
+    gx1::GlaminRuntime runtime(1);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "entities", 2, {1.0F, 0.0F, 10.0F, 0.0F});
+    const auto relation_generation = generations.mount_flat(
+        "relations", 2, {0.0F, 1.0F, 0.0F, 10.0F});
+
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    const gx1::FactorSearchConfig config{
+        2,
+        2,
+        {1.0F, 0.0F, 0.0F, 1.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    payloads->insert_variant(100U, 8U, {3.0F, 4.0F}, {2.0F, 4.0F});
+    payloads->insert_variant(100U, 8U, {30.0F, 40.0F}, {20.0F, 40.0F});
+    gx1::FactorizedLayerMemoryHook hook(
+        std::move(entity_pin),
+        config,
+        {100U, 200U},
+        std::move(relation_pin),
+        config,
+        {7U, 8U},
+        0.5F,
+        payloads,
+        0.5F);
+
+    const std::vector<std::vector<float>> candidates{
+        {1.0F, 0.0F},
+        {0.0F, 10.0F},
+        {50.0F, 50.0F},
+    };
+    std::vector<float> hidden{3.0F, 4.0F};
+    const auto joined = hook.apply_nearest(candidates, hidden);
+    expect(joined.entity.factor_label == 100U,
+           "factorized join selected the wrong entity");
+    expect(joined.entity.address_candidate == 0U,
+           "factorized join selected the wrong entity token");
+    expect(joined.relation.factor_label == 8U,
+           "factorized join selected the wrong relation");
+    expect(joined.relation.address_candidate == 1U,
+           "factorized join selected the wrong relation token");
+    expect(joined.tuple_found && joined.applied,
+           "reviewed factor tuple did not apply");
+    expect(joined.action_accepted && joined.action_variant == 0U &&
+               joined.action_distance == 0.0F,
+           "factorized join selected the wrong contextual action");
+    expect(hidden == std::vector<float>({4.0F, 6.0F}),
+           "factorized tuple applied the wrong residual");
+
+    std::vector<float> unfamiliar_hidden{4.0F, 4.0F};
+    const auto unfamiliar = hook.apply_nearest(
+        {{1.0F, 0.0F}}, {{0.0F, 10.0F}}, unfamiliar_hidden);
+    expect(unfamiliar.tuple_found && !unfamiliar.action_accepted &&
+               !unfamiliar.applied,
+           "unfamiliar action context did not abstain");
+    expect(unfamiliar_hidden == std::vector<float>({4.0F, 4.0F}),
+           "rejected action context changed the hidden state");
+
+    std::vector<float> missing_hidden{3.0F, 4.0F};
+    const auto missing = hook.apply_nearest(
+        {{10.0F, 0.0F}}, {{0.0F, 10.0F}}, missing_hidden);
+    expect(missing.entity.accepted && missing.relation.accepted,
+           "known tuple factors were not independently accepted");
+    expect(!missing.tuple_found && !missing.applied,
+           "unreviewed factor tuple did not abstain");
+    expect(missing_hidden == std::vector<float>({3.0F, 4.0F}),
+           "unreviewed factor tuple changed the action state");
+
+    std::vector<float> distant_hidden{3.0F, 4.0F};
+    const auto distant = hook.apply_nearest(
+        {{50.0F, 50.0F}}, {{0.0F, 10.0F}}, distant_hidden);
+    expect(!distant.entity.accepted && distant.relation.accepted,
+           "factor distance gates reported the wrong evidence state");
+    expect(!distant.applied &&
+               distant_hidden == std::vector<float>({3.0F, 4.0F}),
+           "rejected factor evidence changed the action state");
+}
+
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(
         gx1::sha256_text("abc") ==
@@ -397,6 +484,7 @@ int main() {
         test_memory_distance_abstention();
         test_automatic_nearest_address_candidate();
         test_prefix_mean_address_candidates();
+        test_factorized_tuple_join_and_abstention();
         test_persistent_hook_artifact_atomic_activation_and_corruption();
         std::cout << "hidden-state Glamin hook tests passed\n";
         return EXIT_SUCCESS;

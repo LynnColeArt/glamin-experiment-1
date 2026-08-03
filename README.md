@@ -18,6 +18,7 @@ generation-qualified residual, and continues through the remaining layers.
 - [Fixed model hook](docs/model-hook.md)
 - [Persistent hook artifact](docs/hook-artifact.md)
 - [Activation-derived associative memory](docs/activation-memory.md)
+- [Factorized entity–relation memory](docs/factorized-memory.md)
 - [Experiment definition](EXPERIMENT.md)
 
 ## Build the Reference Runtime
@@ -63,6 +64,9 @@ negatives:
 
 ```bash
 ./build/gx1_llama_activation_memory_experiment \
+  /home/lynn/.qwench/models/Qwen_Qwen3-4B-Q4_K_M.gguf
+
+./build/gx1_llama_factorized_memory_experiment \
   /home/lynn/.qwench/models/Qwen_Qwen3-4B-Q4_K_M.gguf
 ```
 

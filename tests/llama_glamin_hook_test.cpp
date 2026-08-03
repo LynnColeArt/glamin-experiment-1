@@ -114,11 +114,108 @@ void test_callback_mutates_only_the_last_token() {
     ggml_backend_free(backend);
 }
 
+void test_factorized_callback_joins_different_token_rows() {
+    gx1::GlaminRuntime runtime(1);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "tensor-entities", 2, {1.0F, 0.0F, 10.0F, 0.0F});
+    const auto relation_generation = generations.mount_flat(
+        "tensor-relations", 2, {0.0F, 1.0F, 0.0F, 10.0F});
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    gx1::FactorSearchConfig entity_config{
+        4,
+        2,
+        {1.0F, 0.0F, 0.0F, 0.0F,
+         0.0F, 1.0F, 0.0F, 0.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    gx1::FactorSearchConfig relation_config{
+        4,
+        2,
+        {0.0F, 0.0F, 1.0F, 0.0F,
+         0.0F, 0.0F, 0.0F, 1.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    payloads->insert(100U, 8U, {2.0F, 0.0F, -2.0F, 0.0F});
+    gx1::FactorizedLayerMemoryHook memory_hook(
+        std::move(entity_pin),
+        std::move(entity_config),
+        {100U, 200U},
+        std::move(relation_pin),
+        std::move(relation_config),
+        {7U, 8U},
+        0.5F,
+        payloads);
+    gx1::LlamaFactorizedGlaminHook hook(
+        std::move(memory_hook), "l_out-1");
+
+    auto* backend = ggml_backend_cpu_init();
+    if (backend == nullptr) {
+        throw std::runtime_error("failed to create the ggml CPU backend");
+    }
+    ggml_init_params parameters{};
+    parameters.mem_size = 1024U * 1024U;
+    parameters.mem_buffer = nullptr;
+    parameters.no_alloc = true;
+    auto* context = ggml_init(parameters);
+    if (context == nullptr) {
+        ggml_backend_free(backend);
+        throw std::runtime_error("failed to create the ggml tensor context");
+    }
+    auto* tensor = ggml_new_tensor_2d(context, GGML_TYPE_F32, 4, 3);
+    ggml_set_name(tensor, "l_out-1");
+    auto* buffer = ggml_backend_alloc_ctx_tensors(context, backend);
+    if (buffer == nullptr) {
+        ggml_free(context);
+        ggml_backend_free(backend);
+        throw std::runtime_error("failed to allocate the ggml tensor buffer");
+    }
+
+    const std::vector<float> input{
+        1.0F, 0.0F, 99.0F, 99.0F,
+        99.0F, 99.0F, 0.0F, 10.0F,
+        50.0F, 50.0F, 50.0F, 50.0F,
+    };
+    ggml_backend_tensor_set(tensor, input.data(), 0, input.size() * sizeof(float));
+    expect(gx1::LlamaFactorizedGlaminHook::evaluate(tensor, true, &hook),
+           "factorized callback did not request its tensor");
+    expect(gx1::LlamaFactorizedGlaminHook::evaluate(tensor, false, &hook),
+           "factorized callback rejected a valid tensor");
+    hook.throw_if_failed();
+
+    std::vector<float> output(input.size());
+    ggml_backend_tensor_get(tensor, output.data(), 0, output.size() * sizeof(float));
+    const std::vector<float> expected{
+        1.0F, 0.0F, 99.0F, 99.0F,
+        99.0F, 99.0F, 0.0F, 10.0F,
+        51.0F, 50.0F, 49.0F, 50.0F,
+    };
+    expect(output == expected,
+           "factorized callback mutated the wrong tensor values");
+    expect(hook.last_result().has_value() && hook.last_result()->applied,
+           "factorized callback did not retain its applied result");
+    expect(hook.last_result()->entity.address_candidate == 0U &&
+               hook.last_result()->relation.address_candidate == 1U,
+           "factorized callback did not join evidence across token rows");
+
+    ggml_backend_buffer_free(buffer);
+    ggml_free(context);
+    ggml_backend_free(backend);
+}
+
 } // namespace
 
 int main() {
     try {
         test_callback_mutates_only_the_last_token();
+        test_factorized_callback_joins_different_token_rows();
         std::cout << "llama.cpp Glamin tensor callback tests passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

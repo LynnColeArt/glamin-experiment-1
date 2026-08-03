@@ -62,3 +62,6 @@ The probe added an artifact-bound `prefix_mean_rows` address policy and grouped
 nearest-competitor diagnostics to the model-agnostic builder. Both are tested
 mechanisms even though neither made this particular representation separable.
 The primary executable remains the last fully passing one-relation experiment.
+
+The subsequent [factorized memory experiment](factorized-memory.md) implements
+the proposed entity/relation split and exact tuple join inside inference.

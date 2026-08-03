@@ -127,6 +127,18 @@ automatically selects the nearest memory address, and applies its action at the
 final answer position. The reusable model-agnostic builder now derives 24 keys
 from three views of eight associations without entity annotations. It passes 16
 validation prompts, 16 held-out positive prompts, and 16 negative controls with
-exact abstention. The artifact persists the selection policy. The next boundary
-is multiple relations, batched scanning, and a substantially larger and more
-varied negative-control set.
+exact abstention. The artifact persists the selection policy. A separate
+factorized experiment now retrieves entity and relation evidence from
+independently calibrated Glamin spaces, performs an exact tuple join, and gates
+a contextual residual. It passes 18 registered action contexts and exactly
+abstains on two missing known-factor tuples plus 12 unfamiliar contexts. The
+next boundary is representation-level paraphrase generalization, persistence of
+the complete factorized contract, batched scanning, and a substantially larger
+negative-control set.
+
+Run the factorized frozen-model probe with:
+
+```bash
+./build/gx1_llama_factorized_memory_experiment \
+  /home/lynn/.qwench/models/Qwen_Qwen3-4B-Q4_K_M.gguf
+```
