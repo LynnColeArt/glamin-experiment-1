@@ -61,4 +61,8 @@ reviewed target state at `l_out-35`: it reached rank one on all 10 authorized
 frozen prompts, compared with 6/10 for residuals, but missed its 12/12 criterion
 because two compact Arcturus forms failed the upstream entity gate. Persisted
 factorized artifacts, trained adapters, durable traces, and external procedural
-actions remain future work.
+actions remain future work. An entity-address comparison then selected 18/18
+positive entities with association signal versus 13/18 with variance and
+rejected 6/6 unknown entities exactly. End-to-end routing remained 9/18 because
+the unchanged relation gate rejected three material questions and the action
+gate rejected all six URI forms.

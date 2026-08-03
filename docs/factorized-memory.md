@@ -296,9 +296,11 @@ remain unmeasured.
 
 ## Next Experiment
 
-The failed archive prompts must remain frozen. A new split should test an
-association-signal or otherwise form-stable entity representation against
-compact syntax while retaining the two-stage target action and every existing
-negative control. Once end-to-end routing generalizes independently, the
-complete two-stage factorized contract should be persisted and live-swapped as
-one generation.
+The entity-address invariance probe described in
+[Entity-Address Invariance](entity-address-invariance.md) reached 18/18 correct
+entity matches and 6/6 unknown-entity abstentions, but only 9/18 end-to-end
+routes. Its failed prompts must remain frozen. A new split should hold the
+association-signal entity projection and later target action fixed while
+testing form-stable relation and action-context representations. Once complete
+authorization generalizes independently, the two-stage factorized contract
+should be persisted and live-swapped as one generation.

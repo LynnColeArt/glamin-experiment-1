@@ -76,9 +76,10 @@ A rollback reproduced the baseline logits exactly in the same process.
   entity-routing boundary on a new frozen split.
 - [ ] Generalize entity, relation, and action-context representations across
   frozen, previously unseen paraphrase sets.
-  - Entity-address invariance protocol frozen: compare variance and
-    association-signal entity projections on a new 18-prompt evaluation set
-    plus six unknown-entity controls.
+  - [x] Compare variance and association-signal entity projections on a new
+    18-prompt evaluation set plus six unknown-entity controls: association
+    signal reached 18/18 entity matches and 6/6 abstentions, while unchanged
+    downstream gates limited end-to-end routing to 9/18.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

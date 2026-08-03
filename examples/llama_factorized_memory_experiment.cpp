@@ -1370,8 +1370,10 @@ int run(const std::string& model_path) {
 
     std::size_t entity_address_variance_evaluation_routes = 0U;
     std::size_t entity_address_variance_evaluation_recall = 0U;
+    std::size_t entity_address_variance_evaluation_entities = 0U;
     std::size_t entity_address_association_evaluation_routes = 0U;
     std::size_t entity_address_association_evaluation_recall = 0U;
+    std::size_t entity_address_association_evaluation_entities = 0U;
     for (const auto& tuple : tuples) {
         for (const auto& held_out : entity_address_evaluation_prompts(
                  entities[tuple.entity], relations[tuple.relation])) {
@@ -1409,19 +1411,31 @@ int run(const std::string& model_path) {
                 association.hook.applied &&
                 association.hook.entity.factor_label == tuple.entity &&
                 association.hook.relation.factor_label == tuple.relation;
+            const auto variance_entity_matched =
+                variance.hook.entity.accepted &&
+                variance.hook.entity.factor_label == tuple.entity;
+            const auto association_entity_matched =
+                association.hook.entity.accepted &&
+                association.hook.entity.factor_label == tuple.entity;
             entity_address_variance_evaluation_routes +=
                 variance_routed ? 1U : 0U;
             entity_address_variance_evaluation_recall +=
                 variance_routed && variance_rank == 1U ? 1U : 0U;
+            entity_address_variance_evaluation_entities +=
+                variance_entity_matched ? 1U : 0U;
             entity_address_association_evaluation_routes +=
                 association_routed ? 1U : 0U;
             entity_address_association_evaluation_recall +=
                 association_routed && association_rank == 1U ? 1U : 0U;
+            entity_address_association_evaluation_entities +=
+                association_entity_matched ? 1U : 0U;
             std::cout << "entity_address_evaluation=" << held_out.first << '/'
                       << entities[tuple.entity] << '/'
                       << relations[tuple.relation]
                       << " variance_entity_distance="
                       << variance.hook.entity.distance
+                      << " variance_entity="
+                      << variance.hook.entity.factor_label
                       << " variance_entity_accepted="
                       << (variance.hook.entity.accepted ? "yes" : "no")
                       << " variance_routed="
@@ -1429,6 +1443,8 @@ int run(const std::string& model_path) {
                       << " variance_rank=" << variance_rank
                       << " association_entity_distance="
                       << association.hook.entity.distance
+                      << " association_entity="
+                      << association.hook.entity.factor_label
                       << " association_entity_accepted="
                       << (association.hook.entity.accepted ? "yes" : "no")
                       << " association_relation_accepted="
@@ -1514,11 +1530,17 @@ int run(const std::string& model_path) {
     std::cout << "entity_address_evaluation_summary=variance_routes "
               << entity_address_variance_evaluation_routes << '/'
               << entity_address_evaluation_count
+              << " variance_entities "
+              << entity_address_variance_evaluation_entities << '/'
+              << entity_address_evaluation_count
               << " variance_rank_one "
               << entity_address_variance_evaluation_recall << '/'
               << entity_address_evaluation_count
               << " association_routes "
               << entity_address_association_evaluation_routes << '/'
+              << entity_address_evaluation_count
+              << " association_entities "
+              << entity_address_association_evaluation_entities << '/'
               << entity_address_evaluation_count
               << " association_rank_one "
               << entity_address_association_evaluation_recall << '/'

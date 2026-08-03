@@ -136,10 +136,13 @@ missing known-factor tuples plus 12 tuple-matched wrong intents. The selected
 residual produces rank-one targets on 9/12 frozen prompts. A two-stage callback
 now authorizes at `l_out-34` without mutation and applies a reviewed target state
 at `l_out-35`. On its new frozen split it produced rank-one targets for all
-10 authorized prompts, versus 6/10 for residuals; two compact Arcturus prompts
-failed the entity gate, so the preregistered 12/12 criterion was not met. The
-next boundary is compact entity-form generalization, persistence of the complete
-factorized contract, batched scanning, and a substantially larger negative set.
+10 authorized prompts, versus 6/10 for residuals. An entity-address follow-up
+then compared variance and association-signal projections on 18 new prompts.
+Association signal identified 18/18 entities and rejected 6/6 unknown-entity
+controls exactly, but unchanged relation and action gates limited end-to-end
+routing and rank-one recall to 9/18. The next boundary is form-stable relation
+and action authorization, followed by persistence of the complete factorized
+contract, batched scanning, and a substantially larger negative set.
 
 Run the factorized frozen-model probe with:
 
