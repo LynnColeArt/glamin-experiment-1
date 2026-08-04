@@ -125,3 +125,10 @@ representations must generalize across compact forms without weakening the
 existing wrong-intent boundary. The entity projection, exact tuple ledger, and
 later target-state action should now remain fixed while those two gates are
 tested on a new split.
+
+That follow-up is recorded in
+[Gate-Local Authorization Invariance](gate-local-authorization-invariance.md).
+It solved the tested relation boundary with a centroid representation, but its
+authorization projection admitted 7/12 fresh wrong intents. The remaining
+boundary is therefore retrieval-intent specificity rather than relation
+addressing on the measured split.

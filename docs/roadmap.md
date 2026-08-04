@@ -80,9 +80,10 @@ A rollback reproduced the baseline logits exactly in the same process.
     18-prompt evaluation set plus six unknown-entity controls: association
     signal reached 18/18 entity matches and 6/6 abstentions, while unchanged
     downstream gates limited end-to-end routing to 9/18.
-  - Gate-local protocol frozen: compare relation centroids and
-    authorization-signal action projection independently, then compose them on
-    a third untouched split.
+  - [x] Compare relation centroids and authorization-signal action projection
+    independently, then compose them on a third untouched split: relation
+    passed 12/12 plus 4/4 negatives; authorization and composition failed their
+    selectivity criteria.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

@@ -27,8 +27,8 @@
 - [Entity-address invariance](entity-address-invariance.md) preregisters the
   variance-versus-association-signal entity projection comparison.
 - [Gate-local authorization invariance](gate-local-authorization-invariance.md)
-  preregisters relation prototypes, contrastive action authorization, and their
-  independent composition test.
+  records the preregistered relation prototypes, contrastive action
+  authorization, independent composition test, and frozen result.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -68,4 +68,7 @@ actions remain future work. An entity-address comparison then selected 18/18
 positive entities with association signal versus 13/18 with variance and
 rejected 6/6 unknown entities exactly. End-to-end routing remained 9/18 because
 the unchanged relation gate rejected three material questions and the action
-gate rejected all six URI forms.
+gate rejected all six URI forms. The gate-local follow-up then passed its
+relation stage at 12/12 positives and 4/4 unknown-relation rejections.
+Authorization signal reached 11/12 positives but rejected only 5/12 fresh wrong
+intents; composition reached 9/12 and failed the frozen authority criterion.

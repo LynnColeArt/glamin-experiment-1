@@ -2,8 +2,8 @@
 
 ## Status
 
-Protocol frozen before the first model evaluation. Results are intentionally
-absent until the development preflight and one-shot frozen stages run.
+Protocol and one-shot frozen evaluation complete. The relation stage passed;
+the authorization and composition stages failed their preregistered criteria.
 
 Development preflight amendment, 2026-08-04: the first execution stopped
 before `relation_prototype_evaluation` while constructing the variance action
@@ -108,3 +108,46 @@ Each local stage and the composition stage receives an independent verdict. No
 frozen prompt, representation, threshold, control, or criterion may change
 after the first frozen run. Failure is retained as evidence and must motivate a
 separate experiment.
+
+## Observed Results
+
+The development preflight passed its candidate criteria. Both nearest-view and
+centroid relation memories identified 12/12 relations. Authorization signal
+accepted 12/12 positive forms, compared with 10/12 for variance, while all 12
+existing metaphor and spelling controls remained exact no-ops at the action
+gate. The resulting radii were `1.12635` for nearest-view relation, `1.15984`
+for centroid relation, `0.100967` for the permissive variance baseline, and
+`1.23101` for strict authorization signal.
+
+The first and only frozen run produced:
+
+| Stage | Positive result | Negative result | Verdict |
+| --- | --- | --- | --- |
+| Relation | nearest 12/12; centroid 12/12 | centroid rejected 4/4 unknown relations | pass |
+| Authorization | variance 9/12; authorization signal 11/12 accepted and 11/12 rank one | authorization signal preserved exact no-op on 5/12 fresh wrong intents | fail |
+| Composition | 9/12 correct routes and 9/12 rank-one targets | 2/6 wrong intents, 4/4 missing tuples, 3/4 unknown entities, and 4/4 unknown relations were exact no-ops | fail |
+
+One compact `memory.get(Bellatrix, color)` positive stopped before the action
+gate, so its recorded action distance was zero. This means the 11/12 positive
+authorization result is a complete-path measurement, not evidence that the
+authorization projection itself rejected that prompt. Seven of the twelve
+fresh summarization and alphabetization controls were nevertheless admitted,
+which is a direct failure of action selectivity.
+
+The relation centroid therefore meets the narrow relation-invariance claim on
+this split. Authorization signal greatly widened positive coverage relative to
+variance, but did not learn a sufficiently specific retrieval-intent boundary.
+Its composition result reproduces that distinction: exact tuple absence and
+unknown relations remained fail-closed, while action intent and one unknown
+entity did not. No frozen input, threshold, representation, or criterion was
+changed after these observations.
+
+## Consequence
+
+The next experiment should not tune this frozen probe. It should retain the
+successful relation representation and investigate authorization as a
+multi-class or explicitly conjunctive decision: tuple-local compatibility plus
+a separately calibrated retrieval-intent signal. A larger independently
+authored negative corpus is required before another composition test. The
+complete factorized generation should then be persisted only after this
+authority boundary is measured independently.
