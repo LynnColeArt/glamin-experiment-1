@@ -26,6 +26,9 @@
   two-space tuple join, contextual action gate, and frozen-Qwen result.
 - [Entity-address invariance](entity-address-invariance.md) preregisters the
   variance-versus-association-signal entity projection comparison.
+- [Gate-local authorization invariance](gate-local-authorization-invariance.md)
+  preregisters relation prototypes, contrastive action authorization, and their
+  independent composition test.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
