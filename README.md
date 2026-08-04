@@ -38,13 +38,14 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-The latest probe separates authorization at `l_out-34` from target-state action
-at `l_out-35`. On a new frozen split it authorized 10 of 12 prompts. For every
-authorized prompt, the later action reproduced the stored target at rank one;
-the early residual baseline did so on only 6 of 10. Two compact Arcturus prompts
-failed the upstream entity gate and remained exact no-ops, so the preregistered
-12/12 end-to-end criterion was not met. All 12 tuple-matched wrong intents and
-both deliberately absent tuples also remained exact no-ops.
+The latest probe holds relation, tuple, action, and later target-state machinery
+fixed while comparing variance and association-signal entity projections.
+Association signal identified the correct entity on 18/18 new frozen prompts,
+versus 13/18 for variance, and rejected 6/6 unknown-entity controls exactly. It
+also repaired the preceding known regression set to 12/12. The preregistered
+end-to-end criterion nevertheless failed at 9/18: six URI forms stopped at the
+unchanged action gate and three material questions stopped at the unchanged
+relation gate. Every authorized target-state action remained rank one, 9/9.
 
 ## Research questions
 
@@ -165,6 +166,7 @@ measurable. Model files are not included in this repository.
 | Association-signal relation probe | Intended relation accepted on 12/12 frozen prompts | Six tuple-matched wrong intents abstained exactly | Legacy negatives constrained the action radius; 0/12 end-to-end recall |
 | Topology-aware action probe | 12/12 frozen prompts routed; 9/12 produced rank-one targets | 12/12 tuple-matched wrong intents and 2/2 missing tuples were exact no-ops | Authorization generalized; selected residual transfer remained form-sensitive |
 | Two-stage target-state probe | 10/12 frozen prompts routed; target state reached rank one on 10/10 authorized prompts versus 6/10 for residuals | 12/12 wrong intents, 2/2 missing tuples, and 2 rejected archive prompts were exact no-ops | Missed its 12/12 criterion at the compact Arcturus entity gate |
+| Entity-address invariance probe | Association signal identified 18/18 entities versus 13/18 for variance; 9/9 authorized target states reached rank one | 6/6 unknown entities, 12/12 wrong intents, and 2/2 missing tuples were exact no-ops | End-to-end criterion failed at 9/18 on unchanged relation and action gates |
 
 ### Topology-aware action probe
 
@@ -215,6 +217,26 @@ The two failures were compact archive forms for Arcturus. Both relations were
 accepted, but entity distance `0.0617394` exceeded the calibrated `0.0510935`
 radius. This failed the preregistered 12/12 end-to-end criterion without
 weakening abstention or implicating the later action mechanism.
+
+### Entity-address invariance probe
+
+The follow-up compared variance and association-signal entity projections using
+identical construction views, development views, negatives, labels, and query
+width. The relation memory, exact tuple ledger, action memory, action gate, and
+later target-state action remained unchanged.
+
+On 18 new frozen prompts, association signal selected and accepted the correct
+entity 18/18, compared with 13/18 for variance. All six unknown-entity controls
+failed the entity gate with exactly unchanged logits. Association signal also
+routed the preceding known two-stage set 12/12, including both compact Arcturus
+forms.
+
+The preregistered end-to-end result was still only 9/18. All six URI forms
+passed entity and relation checks but failed the unchanged action-context gate;
+three material questions passed entity checks but failed the unchanged relation
+gate. Every authorized target-state action produced its stored target at rank
+one. This isolates entity invariance as solved on the tested split while moving
+the next boundary to relation and action-context generalization.
 
 ## Calibration semantics
 
@@ -308,13 +330,17 @@ export GX1_MODEL_PATH=/absolute/path/to/Qwen_Qwen3-4B-Q4_K_M.gguf
 ```
 
 The factorized executable is the current end-to-end research probe. Its latest
-frozen criterion is intentionally unmet, so it reports the measured summary and
-returns nonzero:
+frozen criterion is intentionally unmet, so it reports the measured summaries
+and returns nonzero:
 
 ```text
 two_stage_evaluation_summary=routes 10/12 residual_rank_one=6/12 \
 target_state_rank_one=10/12 target_state_conditional=10/10
-factorized memory experiment failed: two-stage target-state memory failed the frozen evaluation set
+entity_address_evaluation_summary=variance_routes 9/18 variance_entities 13/18 \
+variance_rank_one 9/18 association_routes 9/18 association_entities 18/18 \
+association_rank_one 9/18 unknown_entity_noops 6/6 historical_routes 12/12 \
+historical_rank_one 12/12
+factorized memory experiment failed: association-signal entity addressing failed the frozen criterion
 ```
 
 Quantized kernels, compiler versions, processor behavior, and future dependency
@@ -377,10 +403,13 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
   independent training corpus.
 - Calibration and evaluation corpora are small and authored by the experiment
   designer.
-- A prior 12/12 routing result did not generalize to two compact Arcturus forms
-  in the latest frozen split.
+- Association-signal entity addressing generalized across the latest 18-prompt
+  split, but this result covers four synthetic entity names and a narrow set of
+  authored surface forms.
 - Residual actions remain view-conditioned; later target states are 10/10
   conditional on authorization but use aggressive full-state replacement.
+- Relation and action-context gates failed 3 and 6 of the latest frozen prompts,
+  respectively, limiting end-to-end recall to 9/18.
 - Effects on multi-token continuations and unrelated model capabilities have
   not been measured.
 - The factorized tuple/action ledger is not yet persisted as one atomic Glamin
@@ -391,10 +420,10 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
 
 ## Near-term research agenda
 
-1. Leave the failed archive prompts frozen and create a new split for a
-   form-stable entity representation, such as association-signal projection.
-2. Retain later target-state action and every current wrong-intent and missing
-   tuple control while evaluating end-to-end factor coverage.
+1. Leave every existing frozen prompt untouched and create a new split for
+   form-stable relation and action-context representations.
+2. Hold association-signal entity addressing, later target-state action, and
+   every current wrong-intent, unknown-entity, and missing-tuple control fixed.
 3. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
 4. Add generation-A/generation-B behavioral baselines and geometry diffs.
