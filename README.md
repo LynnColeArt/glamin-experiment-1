@@ -71,14 +71,31 @@ h_action'     = h_action + gate * authorized_r
 
 The factorized probe refines `reviewed_action` into a bounded join:
 
-```text
-all token states ──> entity Glamin space ──> entity evidence + distance gate
-                 └─> relation Glamin space -> relation evidence + distance gate
+```mermaid
+flowchart LR
+    states["All prompt-token states"]
+    entity["Entity Glamin space"]
+    relation["Relation Glamin space"]
+    entity_gate{"Entity distance gate"}
+    relation_gate{"Relation distance gate"}
+    tuple{"Exact reviewed tuple?"}
+    action["Tuple-local action search"]
+    action_gate{"Action distance gate"}
+    residual["Early residual injection"]
+    target["Later reviewed target-state interpolation"]
+    noop["Exact no-op"]
 
-(entity, relation) ──> exact reviewed tuple ledger
-                    └─> tuple-local action search + distance gate
-                        ├─> early residual injection, or
-                        └─> later reviewed target-state interpolation
+    states --> entity --> entity_gate
+    states --> relation --> relation_gate
+    entity_gate -->|accepted entity| tuple
+    relation_gate -->|accepted relation| tuple
+    tuple -->|registered| action --> action_gate
+    action_gate -->|residual path| residual
+    action_gate -->|target-state path| target
+    entity_gate -->|rejected| noop
+    relation_gate -->|rejected| noop
+    tuple -->|missing| noop
+    action_gate -->|rejected| noop
 ```
 
 Failure at any gate leaves the hooked tensor unchanged.
@@ -112,31 +129,28 @@ activations, not updating neural weights.
 
 ## System architecture
 
-```text
-                         control plane
-                    mount / activate / retire
-                               |
-                               v
-prompt -> pinned llama.cpp -> tensor callback --------------------+
-                               |                                  |
-                               v                                  |
-                    activation projection                         |
-                               |                                  |
-                               v                                  |
-                     pinned Glamin generation                     |
-                               |                                  |
-                               v                                  |
-                 address + distance + generation                  |
-                               |                                  |
-                               v                                  |
-                 reviewed residual/action ledger                  |
-                               |                                  |
-                               +---- gated tensor update ----------+
-                                                                  |
-                                    remaining transformer layers <-+
-                                                   |
-                                                   v
-                                             next-token logits
+```mermaid
+flowchart TB
+    subgraph control["Control plane"]
+        lifecycle["Mount / activate / retire"] --> store["Glamin generation store"]
+    end
+
+    subgraph inference["Inference data plane"]
+        prompt["Prompt"] --> llama["Pinned llama.cpp evaluation"]
+        llama --> callback["Tensor callback"]
+        callback --> projection["Activation projection"]
+        projection --> generation["Pinned Glamin generation"]
+        generation --> selection["Address + distance + generation"]
+        selection --> ledger["Reviewed residual / action ledger"]
+        ledger --> gates{"Authorization gates pass?"}
+        gates -->|yes| update["Gated tensor update"]
+        gates -->|no| unchanged["Tensor remains unchanged"]
+        update --> layers["Remaining transformer layers"]
+        unchanged --> layers
+        layers --> logits["Next-token logits"]
+    end
+
+    store -->|active generation| generation
 ```
 
 The real-model probes address Qwen3 at `l_out-34`, where all prompt-token rows
