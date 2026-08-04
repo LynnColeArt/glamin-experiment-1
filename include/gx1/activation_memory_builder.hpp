@@ -59,6 +59,7 @@ struct ActivationMemoryBuildConfig {
         ActivationValidationScope::global};
     ActivationKeyStrategy key_strategy{
         ActivationKeyStrategy::selected_views};
+    bool require_validation_negative_separation{true};
 };
 
 struct ActivationMemoryBuildResult {

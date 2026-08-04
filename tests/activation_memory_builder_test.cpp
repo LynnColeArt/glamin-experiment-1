@@ -249,6 +249,59 @@ void test_association_scoped_validation_and_negatives() {
            "scoped calibration returned an invalid gate");
 }
 
+void test_permissive_calibration_retains_overlapping_baseline() {
+    const std::vector<gx1::ActivationMemoryConstructionView> views{
+        {0U, {{1.0F, 0.0F}}, {1.0F, 0.0F}, {2.0F, 0.0F}},
+    };
+    const std::vector<gx1::ActivationMemoryCalibrationView> negatives{
+        {0U, {{0.9F, 0.1F}}},
+    };
+    const std::vector<gx1::ActivationMemoryValidationView> validation{
+        {0U, {{-1.0F, 0.0F}}},
+    };
+
+    bool strict_calibration_rejected = false;
+    try {
+        static_cast<void>(gx1::ActivationMemoryBuilder::build(
+            views,
+            negatives,
+            validation,
+            gx1::ActivationMemoryBuildConfig{
+                2U,
+                0.5F,
+                false,
+                gx1::ActivationProjectionStrategy::variance,
+                gx1::ActivationValidationScope::association,
+            }));
+    } catch (const std::runtime_error&) {
+        strict_calibration_rejected = true;
+    }
+    expect(strict_calibration_rejected,
+           "strict calibration accepted overlapping neighborhoods");
+
+    const auto result = gx1::ActivationMemoryBuilder::build(
+        views,
+        negatives,
+        validation,
+        gx1::ActivationMemoryBuildConfig{
+            2U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::variance,
+            gx1::ActivationValidationScope::association,
+            gx1::ActivationKeyStrategy::selected_views,
+            false,
+        });
+    expect(result.maximum_validation_distance >= result.minimum_negative_distance,
+           "permissive calibration fixture unexpectedly separates");
+    const auto expected_gate = result.maximum_validation_distance +
+                               0.5F *
+                                   (result.minimum_negative_distance -
+                                    result.maximum_validation_distance);
+    expect(std::abs(result.maximum_distance - expected_gate) < 1.0e-6F,
+           "permissive calibration changed gate interpolation");
+}
+
 } // namespace
 
 int main() {
@@ -258,6 +311,7 @@ int main() {
         test_association_centroids_collapse_view_keys();
         test_authorization_signal_contrasts_scoped_negatives();
         test_association_scoped_validation_and_negatives();
+        test_permissive_calibration_retains_overlapping_baseline();
         std::cout << "activation-memory builder tests passed\n";
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

@@ -671,8 +671,12 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
         minimum_validation_group_margin = std::min(
             minimum_validation_group_margin, group_margin);
     }
-    if (!(maximum_validation < minimum_negative) ||
-        !std::isfinite(maximum_validation) || !std::isfinite(minimum_negative)) {
+    if (!std::isfinite(maximum_validation) || !std::isfinite(minimum_negative)) {
+        throw std::runtime_error(
+            "memory neighborhood calibration produced non-finite distances");
+    }
+    if (config.require_validation_negative_separation &&
+        !(maximum_validation < minimum_negative)) {
         throw std::runtime_error(
             "memory neighborhoods do not separate validation from negatives: "
             "maximum validation " + std::to_string(maximum_validation) +

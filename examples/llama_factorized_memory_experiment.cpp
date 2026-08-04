@@ -907,6 +907,10 @@ int run(const std::string& model_path) {
         }
     }
 
+    const auto build_stage = [](const char* stage) {
+        std::cout << "development_build=" << stage << std::endl;
+    };
+    build_stage("action-baseline");
     const auto action_memory = gx1::ActivationMemoryBuilder::build(
         action_construction,
         action_negatives,
@@ -918,17 +922,20 @@ int run(const std::string& model_path) {
             gx1::ActivationProjectionStrategy::variance,
             gx1::ActivationValidationScope::association,
         });
+    build_stage("relation-nearest");
     const auto relation_nearest_candidate_memory = build_factor(
         relation_prompts,
         relation_negatives,
         relation_prototype_validation,
         gx1::ActivationProjectionStrategy::association_signal);
+    build_stage("relation-prototype");
     const auto relation_prototype_memory = build_factor(
         relation_prompts,
         relation_negatives,
         relation_prototype_validation,
         gx1::ActivationProjectionStrategy::association_signal,
         gx1::ActivationKeyStrategy::association_centroid);
+    build_stage("authorization-variance");
     const auto authorization_variance_memory = gx1::ActivationMemoryBuilder::build(
         action_construction,
         action_negatives,
@@ -939,7 +946,10 @@ int run(const std::string& model_path) {
             false,
             gx1::ActivationProjectionStrategy::variance,
             gx1::ActivationValidationScope::association,
+            gx1::ActivationKeyStrategy::selected_views,
+            false,
         });
+    build_stage("authorization-signal");
     const auto authorization_signal_memory = gx1::ActivationMemoryBuilder::build(
         action_construction,
         action_negatives,
@@ -951,11 +961,13 @@ int run(const std::string& model_path) {
             gx1::ActivationProjectionStrategy::authorization_signal,
             gx1::ActivationValidationScope::association,
         });
+    build_stage("entity-address-variance");
     const auto entity_address_variance_memory = build_factor(
         entity_prompts,
         entity_negatives,
         entity_address_entity_validation,
         gx1::ActivationProjectionStrategy::variance);
+    build_stage("entity-address-association");
     const auto entity_address_association_memory = build_factor(
         entity_prompts,
         entity_negatives,

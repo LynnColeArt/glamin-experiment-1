@@ -5,6 +5,17 @@
 Protocol frozen before the first model evaluation. Results are intentionally
 absent until the development preflight and one-shot frozen stages run.
 
+Development preflight amendment, 2026-08-04: the first execution stopped
+before `relation_prototype_evaluation` while constructing the variance action
+baseline. Its expanded positive and negative neighborhoods overlap (maximum
+validation distance `0.104436`, minimum negative distance `0.097498`), so the
+strict builder correctly refused to construct a supposedly separating gate.
+To retain this negative baseline without changing its inputs or threshold
+formula, the builder gained an explicit permissive-calibration option. The
+default remains strict, the variance comparison alone opts out, and the new
+authorization-signal candidate remains strict. No frozen prompt was evaluated
+or changed.
+
 ## Motivation
 
 Association-signal entity addressing identified 18/18 positive entities and
