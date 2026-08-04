@@ -36,11 +36,17 @@ struct ActivationMemorySelection {
 enum class ActivationProjectionStrategy : std::uint8_t {
     variance = 0,
     association_signal = 1,
+    authorization_signal = 2,
 };
 
 enum class ActivationValidationScope : std::uint8_t {
     global = 0,
     association = 1,
+};
+
+enum class ActivationKeyStrategy : std::uint8_t {
+    selected_views = 0,
+    association_centroid = 1,
 };
 
 struct ActivationMemoryBuildConfig {
@@ -51,6 +57,8 @@ struct ActivationMemoryBuildConfig {
         ActivationProjectionStrategy::variance};
     ActivationValidationScope validation_scope{
         ActivationValidationScope::global};
+    ActivationKeyStrategy key_strategy{
+        ActivationKeyStrategy::selected_views};
 };
 
 struct ActivationMemoryBuildResult {
@@ -58,6 +66,7 @@ struct ActivationMemoryBuildResult {
     std::uint32_t query_dimension{0};
     std::vector<float> input_projection;
     std::vector<std::vector<float>> keys;
+    std::vector<std::size_t> key_associations;
     std::vector<std::size_t> selected_candidates;
     std::map<std::size_t, float> association_margins;
     std::vector<std::vector<float>> residuals;

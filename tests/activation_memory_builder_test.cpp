@@ -144,6 +144,79 @@ void test_association_signal_ignores_high_variance_form_noise() {
            "builder accepted an unknown projection strategy");
 }
 
+void test_association_centroids_collapse_view_keys() {
+    const std::vector<gx1::ActivationMemoryConstructionView> views{
+        {0U, {{1.0F, 0.0F, -20.0F}}, {1.0F, 0.0F, -20.0F}, {1.0F, 0.0F, 0.0F}},
+        {0U, {{1.0F, 0.0F, 20.0F}}, {1.0F, 0.0F, 20.0F}, {1.0F, 0.0F, 0.0F}},
+        {1U, {{0.0F, 1.0F, -20.0F}}, {0.0F, 1.0F, -20.0F}, {0.0F, 1.0F, 0.0F}},
+        {1U, {{0.0F, 1.0F, 20.0F}}, {0.0F, 1.0F, 20.0F}, {0.0F, 1.0F, 0.0F}},
+    };
+    const std::vector<gx1::ActivationStateSequence> negatives{
+        {{-1.0F, -1.0F, 50.0F}},
+    };
+    const std::vector<gx1::ActivationMemoryValidationView> validation{
+        {0U, {{1.0F, 0.0F, 10.0F}}},
+        {1U, {{0.0F, 1.0F, -10.0F}}},
+    };
+
+    const auto result = gx1::ActivationMemoryBuilder::build(
+        views,
+        negatives,
+        validation,
+        gx1::ActivationMemoryBuildConfig{
+            2U,
+            0.5F,
+            true,
+            gx1::ActivationProjectionStrategy::association_signal,
+            gx1::ActivationValidationScope::global,
+            gx1::ActivationKeyStrategy::association_centroid,
+        });
+    expect(result.keys.size() == 2U,
+           "centroid builder did not collapse association views");
+    expect(result.key_associations == std::vector<std::size_t>({0U, 1U}),
+           "centroid builder returned the wrong association labels");
+    expect(result.validation_selections[0].key == 0U &&
+               result.validation_selections[1].key == 1U,
+           "centroid builder routed a validation view incorrectly");
+}
+
+void test_authorization_signal_contrasts_scoped_negatives() {
+    const std::vector<gx1::ActivationMemoryConstructionView> views{
+        {0U, {{1.0F, 10.0F, -100.0F}}, {1.0F, 10.0F, -100.0F}, {2.0F, 0.0F, 0.0F}},
+        {0U, {{1.0F, 10.0F, 100.0F}}, {1.0F, 10.0F, 100.0F}, {2.0F, 0.0F, 0.0F}},
+        {1U, {{1.0F, -10.0F, -100.0F}}, {1.0F, -10.0F, -100.0F}, {0.0F, 2.0F, 0.0F}},
+        {1U, {{1.0F, -10.0F, 100.0F}}, {1.0F, -10.0F, 100.0F}, {0.0F, 2.0F, 0.0F}},
+    };
+    const std::vector<gx1::ActivationMemoryCalibrationView> negatives{
+        {0U, {{-1.0F, 10.0F, -200.0F}, {-1.0F, 10.0F, 200.0F}}},
+        {1U, {{-1.0F, -10.0F, -200.0F}, {-1.0F, -10.0F, 200.0F}}},
+    };
+    const std::vector<gx1::ActivationMemoryValidationView> validation{
+        {0U, {{0.8F, 10.0F, 50.0F}}},
+        {1U, {{0.8F, -10.0F, -50.0F}}},
+    };
+
+    const auto result = gx1::ActivationMemoryBuilder::build(
+        views,
+        negatives,
+        validation,
+        gx1::ActivationMemoryBuildConfig{
+            2U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::authorization_signal,
+            gx1::ActivationValidationScope::association,
+        });
+    expect(result.input_projection[0] == 1.0F,
+           "authorization projection omitted the intent coordinate");
+    expect(result.input_projection[2] == 0.0F &&
+               result.input_projection[5] == 0.0F,
+           "authorization projection retained form-only variance");
+    expect(result.maximum_validation_distance < result.maximum_distance &&
+               result.maximum_distance < result.minimum_negative_distance,
+           "authorization projection did not separate positives and negatives");
+}
+
 void test_association_scoped_validation_and_negatives() {
     const std::vector<gx1::ActivationMemoryConstructionView> views{
         {0U, {{1.0F, 0.0F}}, {1.0F, 0.0F}, {2.0F, 0.0F}},
@@ -182,6 +255,8 @@ int main() {
     try {
         test_multi_view_key_construction_and_gate();
         test_association_signal_ignores_high_variance_form_noise();
+        test_association_centroids_collapse_view_keys();
+        test_authorization_signal_contrasts_scoped_negatives();
         test_association_scoped_validation_and_negatives();
         std::cout << "activation-memory builder tests passed\n";
         return EXIT_SUCCESS;
