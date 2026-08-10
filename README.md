@@ -499,7 +499,8 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
    do not tune them against the three observed composition failures.
 3. Preregister a fresh replication that broadens retrieval-form and
    counterfactual development coverage while independently testing the existing
-   entity factor boundary.
+   entity factor boundary. The frozen protocol is in
+   [Composition-Stable Retrieval Authorization](docs/composition-stable-retrieval-authorization.md).
 4. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
 5. Persist entity space, relation space, tuple membership, action variants,

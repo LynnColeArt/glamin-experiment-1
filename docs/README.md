@@ -32,6 +32,9 @@
 - [Conjunctive retrieval authorization](conjunctive-retrieval-authorization.md)
   records separate tuple-compatibility and retrieval-intent gates, passing
   local frozen results, and a narrowly failing one-shot composed evaluation.
+- [Composition-stable retrieval authorization](composition-stable-retrieval-authorization.md)
+  preregisters a fresh replication with a known-entity veto, contrastive intent
+  margin, prior-frozen regression gate, and untouched composition split.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 

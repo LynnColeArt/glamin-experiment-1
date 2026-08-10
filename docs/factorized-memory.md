@@ -306,5 +306,6 @@ It nevertheless failed its strict criterion on one unseen retrieval form, one
 counterfactual, and one unknown-entity factor decision. A fresh replication
 should broaden positive syntax and counterfactual development coverage without
 tuning against these frozen examples, and should retest entity open-set
-rejection independently. Atomic persistence remains deferred until that full
-boundary passes.
+rejection independently. That replication is frozen in
+[Composition-Stable Retrieval Authorization](composition-stable-retrieval-authorization.md).
+Atomic persistence remains deferred until that full boundary passes.
