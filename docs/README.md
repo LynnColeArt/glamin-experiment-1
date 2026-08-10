@@ -35,6 +35,9 @@
 - [Composition-stable retrieval authorization](composition-stable-retrieval-authorization.md)
   records a fresh replication whose development passed but whose known-entity
   veto failed one prior-frozen positive, stopping before new frozen evaluation.
+- [Label-conditioned entity knownness](label-conditioned-entity-knownness.md)
+  records a materially different verifier whose development passed but whose
+  protocol stopped before regression on an Altair corpus-provenance collision.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -88,3 +91,7 @@ The composition-stability replication then repaired the prior counterfactual
 and all four unknown-entity controls while preserving every older no-op, but its
 knownness veto rejected one registered Bellatrix form. It stopped at 11/12
 prior-frozen composition positives; no new frozen prompt was evaluated.
+The next protocol changed only knownness representation, assigning each label
+its own positive and matched-negative prototypes under a shared projection. It
+passed development, then stopped before candidate regression when provenance
+review found that development had reused the frozen unknown label Altair.

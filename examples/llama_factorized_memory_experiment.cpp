@@ -558,6 +558,26 @@ replication_development_negative_prompts(
     };
 }
 
+std::vector<std::pair<std::string, std::string>>
+conditioned_knownness_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"open-entry",
+         "Open the " + relation + " entry filed under " + entity +
+             ".\nEntry:"},
+        {"records-select",
+         "records.select(owner='" + entity + "', attribute='" + relation +
+             "') ->"},
+        {"consult-stored",
+         "Consult " + entity + "'s stored " + relation +
+             ".\nStored value:"},
+        {"archive-return",
+         "From the archive, return " + relation + " for " + entity +
+             ".\nResult:"},
+    };
+}
+
 std::vector<float> project_normalized_for_probe(
     const std::vector<float>& state,
     const gx1::ActivationMemoryBuildResult& memory) {
@@ -661,6 +681,34 @@ std::vector<float> nearest_factor_state_for_probe(
         throw std::invalid_argument("factor probe association has no key");
     }
     return *selected;
+}
+
+std::pair<std::size_t, std::vector<float>>
+nearest_factor_selection_for_probe(
+    const gx1::ActivationStateSequence& states,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty() || memory.keys.empty() ||
+        memory.keys.size() != memory.key_associations.size()) {
+        throw std::invalid_argument("factor selection probe is incomplete");
+    }
+    auto minimum = std::numeric_limits<float>::max();
+    std::size_t selected_association = 0U;
+    const std::vector<float>* selected_state = nullptr;
+    for (const auto& state : states) {
+        const auto query = project_normalized_for_probe(state, memory);
+        for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+            const auto distance = probe_squared_distance(query, memory.keys[key]);
+            if (selected_state == nullptr || distance < minimum) {
+                minimum = distance;
+                selected_association = memory.key_associations[key];
+                selected_state = &state;
+            }
+        }
+    }
+    if (selected_state == nullptr) {
+        throw std::runtime_error("factor selection probe selected no state");
+    }
+    return {selected_association, *selected_state};
 }
 
 std::vector<float> nearest_factor_state_for_probe(
@@ -4289,9 +4337,335 @@ int run(const std::string& model_path) {
         prior_missing_noops == prior_missing_count &&
         prior_unknown_entity_noops == prior_unknown_entity_count &&
         prior_unknown_relation_noops == prior_unknown_relation_count;
-    if (!prior_frozen_regression_passed) {
+    const auto historical_replication_reproduced =
+        !prior_frozen_regression_passed &&
+        prior_local_compatibility_accepts == prior_local_positive_count &&
+        prior_local_cross_rejections == prior_local_cross_count &&
+        prior_local_intent_accepts == prior_local_positive_count &&
+        prior_local_negative_noops == prior_local_negative_count &&
+        prior_composition_routes + 1U == prior_composition_count &&
+        prior_composition_recall + 1U == prior_composition_count &&
+        prior_composition_negative_noops ==
+            prior_composition_negative_count &&
+        prior_wrong_intent_noops == prior_wrong_intent_count &&
+        prior_missing_noops == prior_missing_count &&
+        prior_unknown_entity_noops == prior_unknown_entity_count &&
+        prior_unknown_relation_noops == prior_unknown_relation_count;
+    if (!historical_replication_reproduced) {
         throw std::runtime_error(
-            "composition-stable replication failed prior-frozen regression");
+            "historical composition-stable replication result changed");
+    }
+
+    std::vector<std::vector<std::vector<float>>> conditioned_known_states(
+        entities.size());
+    std::size_t conditioned_association_matches = 0U;
+    for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : conditioned_knownness_development_prompts(
+                     entities[entity], relation)) {
+                const auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                auto selection = nearest_factor_selection_for_probe(
+                    baseline.token_states,
+                    entity_address_association_memory);
+                conditioned_association_matches +=
+                    selection.first == entity ? 1U : 0U;
+                conditioned_known_states[entity].push_back(
+                    std::move(selection.second));
+            }
+        }
+    }
+
+    std::vector<UnknownEntityProbeSpec> conditioned_unknown_probes;
+    std::vector<std::pair<std::size_t, std::vector<float>>>
+        conditioned_unknown_selections;
+    for (const auto& unknown : {std::string("Altair"), std::string("Mizar"),
+                                std::string("Rigel"), std::string("Spica")}) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : conditioned_knownness_development_prompts(
+                     unknown, relation)) {
+                auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                conditioned_unknown_selections.push_back(
+                    nearest_factor_selection_for_probe(
+                        baseline.token_states,
+                        entity_address_association_memory));
+                conditioned_unknown_probes.push_back({
+                    prompt.first,
+                    unknown,
+                    relation,
+                    prompt.second,
+                    std::move(baseline),
+                });
+            }
+        }
+    }
+
+    std::vector<gx1::ActivationMemoryConstructionView>
+        conditioned_construction;
+    std::vector<gx1::ActivationMemoryValidationView> conditioned_validation;
+    std::vector<gx1::ActivationMemoryCalibrationView> conditioned_negatives;
+    for (std::size_t entity = 0; entity < conditioned_known_states.size();
+         ++entity) {
+        for (const auto& state : conditioned_known_states[entity]) {
+            conditioned_construction.push_back({
+                entity, {state}, state, state});
+            conditioned_validation.push_back({entity, {state}});
+        }
+        for (std::size_t other = 0; other < conditioned_known_states.size();
+             ++other) {
+            if (other == entity) {
+                continue;
+            }
+            for (const auto& state : conditioned_known_states[other]) {
+                conditioned_negatives.push_back({entity, {state}});
+            }
+        }
+        for (const auto& unknown : conditioned_unknown_selections) {
+            conditioned_negatives.push_back({entity, {unknown.second}});
+        }
+    }
+
+    const auto conditioned_build = [&]()
+        -> std::pair<gx1::ActivationMemoryBuildResult,
+                     std::vector<gx1::LabelConditionedGateEntry>> {
+        build_stage("label-conditioned-knownness");
+        for (const auto width : {32U, 64U, 128U, 256U, 512U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    conditioned_construction,
+                    conditioned_negatives,
+                    conditioned_validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::authorization_signal,
+                        gx1::ActivationValidationScope::association,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                        false,
+                    });
+                std::vector<gx1::LabelConditionedGateEntry> entries;
+                for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+                    const std::vector<float>* positive_prototype = nullptr;
+                    for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+                        if (memory.key_associations[key] == entity) {
+                            positive_prototype = &memory.keys[key];
+                            break;
+                        }
+                    }
+                    if (positive_prototype == nullptr) {
+                        throw std::runtime_error(
+                            "conditioned verifier has no positive prototype");
+                    }
+                    std::vector<std::vector<float>> negative_states;
+                    for (std::size_t other = 0;
+                         other < conditioned_known_states.size();
+                         ++other) {
+                        if (other != entity) {
+                            negative_states.insert(
+                                negative_states.end(),
+                                conditioned_known_states[other].begin(),
+                                conditioned_known_states[other].end());
+                        }
+                    }
+                    for (const auto& unknown : conditioned_unknown_selections) {
+                        negative_states.push_back(unknown.second);
+                    }
+                    const auto negative_prototype =
+                        normalized_centroid_for_probe(negative_states, memory);
+                    auto maximum_positive_distance = 0.0F;
+                    auto minimum_negative_distance =
+                        std::numeric_limits<float>::max();
+                    auto minimum_positive_gap =
+                        std::numeric_limits<float>::max();
+                    auto maximum_negative_gap =
+                        -std::numeric_limits<float>::max();
+                    const auto measurements = [&](const std::vector<float>& state) {
+                        const auto query = project_normalized_for_probe(state, memory);
+                        const auto positive_distance = probe_squared_distance(
+                            query, *positive_prototype);
+                        const auto negative_distance = probe_squared_distance(
+                            query, negative_prototype);
+                        return std::pair<float, float>{
+                            positive_distance,
+                            negative_distance - positive_distance};
+                    };
+                    for (const auto& state : conditioned_known_states[entity]) {
+                        const auto measured = measurements(state);
+                        maximum_positive_distance = std::max(
+                            maximum_positive_distance, measured.first);
+                        minimum_positive_gap = std::min(
+                            minimum_positive_gap, measured.second);
+                    }
+                    for (const auto& state : negative_states) {
+                        const auto measured = measurements(state);
+                        minimum_negative_distance = std::min(
+                            minimum_negative_distance, measured.first);
+                        maximum_negative_gap = std::max(
+                            maximum_negative_gap, measured.second);
+                    }
+                    if (!(maximum_negative_gap < minimum_positive_gap)) {
+                        throw std::runtime_error(
+                            "conditioned contrastive gaps overlap for entity " +
+                            std::to_string(entity));
+                    }
+                    const auto maximum_distance =
+                        maximum_positive_distance +
+                        0.5F * std::max(
+                                   0.0F,
+                                   minimum_negative_distance -
+                                       maximum_positive_distance);
+                    const auto minimum_margin =
+                        maximum_negative_gap +
+                        0.5F * (minimum_positive_gap - maximum_negative_gap);
+                    entries.push_back({
+                        static_cast<std::uint64_t>(entity),
+                        *positive_prototype,
+                        negative_prototype,
+                        maximum_distance,
+                        minimum_margin,
+                    });
+                    std::cout << "conditioned_calibration=" << entities[entity]
+                              << "/radius " << maximum_distance
+                              << "/margin " << minimum_margin
+                              << "/positive_gap " << minimum_positive_gap
+                              << "/negative_gap " << maximum_negative_gap
+                              << '\n';
+                }
+
+                const auto accepts = [&](const std::vector<float>& state,
+                                         const std::size_t proposed) {
+                    const auto query = project_normalized_for_probe(state, memory);
+                    auto nearest_distance = std::numeric_limits<float>::max();
+                    std::size_t nearest = 0U;
+                    for (std::size_t candidate = 0;
+                         candidate < entries.size();
+                         ++candidate) {
+                        const auto distance = probe_squared_distance(
+                            query, entries[candidate].positive_prototype);
+                        if (distance < nearest_distance) {
+                            nearest_distance = distance;
+                            nearest = candidate;
+                        }
+                    }
+                    const auto& entry = entries.at(proposed);
+                    const auto positive_distance = probe_squared_distance(
+                        query, entry.positive_prototype);
+                    const auto negative_distance = probe_squared_distance(
+                        query, entry.negative_prototype);
+                    return nearest == proposed &&
+                           positive_distance <= entry.maximum_distance &&
+                           positive_distance + entry.minimum_margin <=
+                               negative_distance;
+                };
+                std::size_t matching_accepts = 0U;
+                std::size_t nonmatching_rejections = 0U;
+                for (std::size_t entity = 0;
+                     entity < conditioned_known_states.size();
+                     ++entity) {
+                    for (const auto& state : conditioned_known_states[entity]) {
+                        matching_accepts += accepts(state, entity) ? 1U : 0U;
+                        for (std::size_t other = 0;
+                             other < conditioned_known_states.size();
+                             ++other) {
+                            if (other != entity) {
+                                nonmatching_rejections +=
+                                    !accepts(state, other) ? 1U : 0U;
+                            }
+                        }
+                    }
+                }
+                std::size_t unknown_rejections = 0U;
+                for (const auto& unknown : conditioned_unknown_selections) {
+                    unknown_rejections +=
+                        !accepts(unknown.second, unknown.first) ? 1U : 0U;
+                }
+                if (matching_accepts != 32U ||
+                    nonmatching_rejections != 96U ||
+                    unknown_rejections != 32U) {
+                    throw std::runtime_error(
+                        "direct conditioned verifier preflight did not separate: " +
+                        std::to_string(matching_accepts) + "/" +
+                        std::to_string(nonmatching_rejections) + "/" +
+                        std::to_string(unknown_rejections));
+                }
+                std::cout << "development_width=label-conditioned-knownness/"
+                          << width << "/accepted\n";
+                return {std::move(memory), std::move(entries)};
+            } catch (const std::exception& error) {
+                std::cout << "development_width=label-conditioned-knownness/"
+                          << width << "/rejected reason=" << error.what()
+                          << '\n';
+            }
+        }
+        throw std::runtime_error(
+            "no label-conditioned knownness development width separates");
+    }();
+    const auto& conditioned_memory = conditioned_build.first;
+    const auto& conditioned_entries = conditioned_build.second;
+
+    const auto make_conditioned_hook = [&]() {
+        generations.activate(entity_address_association_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(relation_prototype_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(entity_address_association_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(relation_prototype_memory),
+            relation_prototype_labels,
+            1.0F,
+            replication_payloads,
+            replication_compatibility_memory.maximum_distance,
+            factor_config(replication_compatibility_memory),
+            gx1::RetrievalIntentGateConfig{
+                factor_config(replication_intent_memory),
+                replication_intent_memory.keys.front(),
+                replication_intent_calibration.negative_prototype,
+                replication_intent_calibration.minimum_margin,
+            },
+            true,
+            std::nullopt,
+            gx1::LabelConditionedGateConfig{
+                factor_config(conditioned_memory), conditioned_entries});
+    };
+
+    std::size_t conditioned_unknown_noops = 0U;
+    for (const auto& unknown : conditioned_unknown_probes) {
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            unknown.prompt,
+            make_conditioned_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
+        conditioned_unknown_noops +=
+            !memory.hook.known_entity_accepted && !memory.hook.applied &&
+                    maximum_logit_difference(
+                        unknown.baseline.logits, memory.logits) <= 1.0e-5F
+                ? 1U
+                : 0U;
+    }
+    std::cout << "conditioned_development_summary=association "
+              << conditioned_association_matches << "/32 matching 32/32"
+              << " nonmatching_rejections 96/96 unknown_rejections 32/32"
+              << " unknown_noops " << conditioned_unknown_noops << "/32\n";
+    if (conditioned_association_matches != 32U ||
+        conditioned_unknown_noops != 32U) {
+        throw std::runtime_error(
+            "label-conditioned knownness failed development preflight");
     }
 
     std::cout << "stored_tuples=" << tuples.size()

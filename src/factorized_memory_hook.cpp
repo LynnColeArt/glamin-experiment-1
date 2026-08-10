@@ -95,6 +95,38 @@ void validate_gate_config(
     }
 }
 
+void validate_label_conditioned_gate_config(
+    const LabelConditionedGateConfig& config,
+    const std::uint32_t hidden_dimension) {
+    validate_projection_config(config.search);
+    const auto expected_width =
+        static_cast<std::size_t>(config.search.query_dimension);
+    if (config.search.hidden_dimension != hidden_dimension ||
+        config.entries.empty()) {
+        throw std::invalid_argument(
+            "label-conditioned entity gate does not match the hidden-state contract");
+    }
+    for (std::size_t index = 0; index < config.entries.size(); ++index) {
+        const auto& entry = config.entries[index];
+        if (entry.positive_prototype.size() != expected_width ||
+            entry.negative_prototype.size() != expected_width ||
+            !all_finite(entry.positive_prototype) ||
+            !all_finite(entry.negative_prototype) ||
+            !std::isfinite(entry.maximum_distance) ||
+            entry.maximum_distance < 0.0F ||
+            !std::isfinite(entry.minimum_margin)) {
+            throw std::invalid_argument(
+                "label-conditioned entity gate entry is invalid");
+        }
+        for (std::size_t prior = 0; prior < index; ++prior) {
+            if (config.entries[prior].label == entry.label) {
+                throw std::invalid_argument(
+                    "label-conditioned entity gate labels are not unique");
+            }
+        }
+    }
+}
+
 } // namespace
 
 void TupleResidualLedger::insert(
@@ -214,7 +246,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     std::optional<FactorSearchConfig> action_config,
     std::optional<RetrievalIntentGateConfig> intent_config,
     const bool scan_action_candidates,
-    std::optional<ContrastiveGateConfig> known_entity_config)
+    std::optional<ContrastiveGateConfig> known_entity_config,
+    std::optional<LabelConditionedGateConfig> label_conditioned_entity_config)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -227,7 +260,9 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       action_config_(std::move(action_config)),
       intent_config_(std::move(intent_config)),
       scan_action_candidates_(scan_action_candidates),
-      known_entity_config_(std::move(known_entity_config)) {
+      known_entity_config_(std::move(known_entity_config)),
+      label_conditioned_entity_config_(
+          std::move(label_conditioned_entity_config)) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
@@ -255,6 +290,15 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
             *known_entity_config_,
             entity_config_.hidden_dimension,
             "known-entity gate does not match the hidden-state contract");
+    }
+    if (label_conditioned_entity_config_) {
+        validate_label_conditioned_gate_config(
+            *label_conditioned_entity_config_,
+            entity_config_.hidden_dimension);
+    }
+    if (known_entity_config_ && label_conditioned_entity_config_) {
+        throw std::invalid_argument(
+            "factorized memory has two entity-knownness gates");
     }
     if (!std::isfinite(gate_) || !payloads_ ||
         !std::isfinite(maximum_action_distance_) || maximum_action_distance_ < 0.0F) {
@@ -351,6 +395,46 @@ FactorizedLayerMemoryHook::authorize_selection(
                               result.unknown_entity_distance;
         }
         result.known_entity_accepted = radius_accepted && margin_accepted;
+    }
+    if (label_conditioned_entity_config_) {
+        if (result.entity.address_candidate >= entity_states.size()) {
+            throw std::runtime_error(
+                "factor evidence selected an unavailable knownness state");
+        }
+        const auto known_query = project(
+            label_conditioned_entity_config_->search,
+            entity_states[result.entity.address_candidate]);
+        const LabelConditionedGateEntry* selected = nullptr;
+        auto nearest_distance = std::numeric_limits<float>::max();
+        for (const auto& entry : label_conditioned_entity_config_->entries) {
+            const auto distance = squared_distance(
+                known_query, entry.positive_prototype);
+            if (entry.label == result.entity.factor_label) {
+                selected = &entry;
+                result.known_entity_distance = distance;
+                result.known_entity_verifier_label = entry.label;
+                result.unknown_entity_distance = squared_distance(
+                    known_query, entry.negative_prototype);
+            }
+            if (distance < nearest_distance) {
+                nearest_distance = distance;
+                result.nearest_known_entity_label = entry.label;
+            }
+        }
+        if (selected == nullptr) {
+            throw std::runtime_error(
+                "selected entity has no label-conditioned verifier");
+        }
+        result.known_entity_identity_consistent =
+            result.nearest_known_entity_label == result.entity.factor_label;
+        const auto radius_accepted =
+            result.known_entity_distance <= selected->maximum_distance;
+        const auto margin_accepted =
+            result.known_entity_distance + selected->minimum_margin <=
+            result.unknown_entity_distance;
+        result.known_entity_accepted =
+            radius_accepted && margin_accepted &&
+            result.known_entity_identity_consistent;
     }
     if (!result.known_entity_accepted || !result.relation.accepted) {
         return {std::move(result), {}};

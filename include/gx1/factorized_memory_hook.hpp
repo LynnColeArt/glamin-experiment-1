@@ -30,6 +30,19 @@ struct ContrastiveGateConfig {
 
 using RetrievalIntentGateConfig = ContrastiveGateConfig;
 
+struct LabelConditionedGateEntry {
+    std::uint64_t label{0};
+    std::vector<float> positive_prototype;
+    std::vector<float> negative_prototype;
+    float maximum_distance{std::numeric_limits<float>::max()};
+    float minimum_margin{0.0F};
+};
+
+struct LabelConditionedGateConfig {
+    FactorSearchConfig search;
+    std::vector<LabelConditionedGateEntry> entries;
+};
+
 struct FactorEvidence {
     GlaminGenerationId generation{0};
     std::uint64_t memory_label{0};
@@ -49,9 +62,12 @@ struct FactorizedMemoryResult {
     float intent_negative_distance{0.0F};
     float known_entity_distance{0.0F};
     float unknown_entity_distance{0.0F};
+    std::uint64_t known_entity_verifier_label{0};
+    std::uint64_t nearest_known_entity_label{0};
     std::size_t action_variant{0};
     bool tuple_found{false};
     bool known_entity_accepted{true};
+    bool known_entity_identity_consistent{true};
     bool compatibility_accepted{false};
     bool intent_accepted{false};
     bool action_accepted{false};
@@ -123,7 +139,9 @@ public:
         std::optional<FactorSearchConfig> action_config = std::nullopt,
         std::optional<RetrievalIntentGateConfig> intent_config = std::nullopt,
         bool scan_action_candidates = false,
-        std::optional<ContrastiveGateConfig> known_entity_config = std::nullopt);
+        std::optional<ContrastiveGateConfig> known_entity_config = std::nullopt,
+        std::optional<LabelConditionedGateConfig>
+            label_conditioned_entity_config = std::nullopt);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -177,6 +195,7 @@ private:
     std::optional<RetrievalIntentGateConfig> intent_config_;
     bool scan_action_candidates_{false};
     std::optional<ContrastiveGateConfig> known_entity_config_;
+    std::optional<LabelConditionedGateConfig> label_conditioned_entity_config_;
 };
 
 } // namespace gx1
