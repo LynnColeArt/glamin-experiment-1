@@ -3536,20 +3536,20 @@ int run(const std::string& model_path) {
             replication_knownness_validation.push_back({0U, {known_state}});
             replication_compatibility_validation.push_back({
                 positive.tuple, {combined}});
-            replication_intent_validation.push_back({
-                0U, {positive.baseline.hidden_state}});
         } else {
             replication_knownness_construction.push_back({
                 0U, {known_state}, known_state, known_state});
             replication_compatibility_construction.push_back({
                 positive.tuple, {combined}, combined, combined});
-            replication_intent_construction.push_back({
-                0U,
-                {positive.baseline.hidden_state},
-                positive.baseline.hidden_state,
-                positive.baseline.hidden_state,
-            });
         }
+        replication_intent_construction.push_back({
+            0U,
+            {positive.baseline.hidden_state},
+            positive.baseline.hidden_state,
+            positive.baseline.hidden_state,
+        });
+        replication_intent_validation.push_back({
+            0U, {positive.baseline.hidden_state}});
         for (std::size_t candidate = 0; candidate < tuples.size(); ++candidate) {
             if (candidate != positive.tuple) {
                 replication_compatibility_negatives.push_back({

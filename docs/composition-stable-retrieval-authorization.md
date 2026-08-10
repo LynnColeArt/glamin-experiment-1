@@ -88,6 +88,9 @@ radial neighborhoods overlap, the radius stops at the hardest positive. The
 signed prototype threshold must then reject every overlapping negative. Thus
 every positive must satisfy both conditions and every negative must fail at
 least one; radial separation is not treated as a hidden third criterion.
+All 24 declared development positives contribute equally to the retrieval
+prototype and are also checked by the preflight. There is no held-out claim
+inside the development split; generalization is reserved for the frozen stages.
 
 Widths may be selected from `64`, `128`, `256`, and `512` using development
 only. Thresholds and margins must be derived mechanically from the hardest
