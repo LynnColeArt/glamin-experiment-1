@@ -21,10 +21,14 @@ struct FactorSearchConfig {
     float maximum_distance{std::numeric_limits<float>::max()};
 };
 
-struct RetrievalIntentGateConfig {
+struct ContrastiveGateConfig {
     FactorSearchConfig search;
     std::vector<float> prototype;
+    std::vector<float> negative_prototype;
+    float minimum_margin{0.0F};
 };
+
+using RetrievalIntentGateConfig = ContrastiveGateConfig;
 
 struct FactorEvidence {
     GlaminGenerationId generation{0};
@@ -42,8 +46,12 @@ struct FactorizedMemoryResult {
     float action_distance{0.0F};
     float compatibility_distance{0.0F};
     float intent_distance{0.0F};
+    float intent_negative_distance{0.0F};
+    float known_entity_distance{0.0F};
+    float unknown_entity_distance{0.0F};
     std::size_t action_variant{0};
     bool tuple_found{false};
+    bool known_entity_accepted{true};
     bool compatibility_accepted{false};
     bool intent_accepted{false};
     bool action_accepted{false};
@@ -114,7 +122,8 @@ public:
         float maximum_action_distance = std::numeric_limits<float>::max(),
         std::optional<FactorSearchConfig> action_config = std::nullopt,
         std::optional<RetrievalIntentGateConfig> intent_config = std::nullopt,
-        bool scan_action_candidates = false);
+        bool scan_action_candidates = false,
+        std::optional<ContrastiveGateConfig> known_entity_config = std::nullopt);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -167,6 +176,7 @@ private:
     std::optional<FactorSearchConfig> action_config_;
     std::optional<RetrievalIntentGateConfig> intent_config_;
     bool scan_action_candidates_{false};
+    std::optional<ContrastiveGateConfig> known_entity_config_;
 };
 
 } // namespace gx1

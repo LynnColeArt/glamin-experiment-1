@@ -75,6 +75,26 @@ void validate_config(
     }
 }
 
+void validate_gate_config(
+    const ContrastiveGateConfig& config,
+    const std::uint32_t hidden_dimension,
+    const char* description) {
+    validate_projection_config(config.search);
+    const auto expected_width =
+        static_cast<std::size_t>(config.search.query_dimension);
+    const auto negative_width_valid = config.negative_prototype.empty() ||
+                                      config.negative_prototype.size() ==
+                                          expected_width;
+    if (config.search.hidden_dimension != hidden_dimension ||
+        config.prototype.size() != expected_width || !negative_width_valid ||
+        !all_finite(config.prototype) ||
+        !all_finite(config.negative_prototype) ||
+        !std::isfinite(config.minimum_margin) || config.minimum_margin < 0.0F ||
+        (config.negative_prototype.empty() && config.minimum_margin != 0.0F)) {
+        throw std::invalid_argument(description);
+    }
+}
+
 } // namespace
 
 void TupleResidualLedger::insert(
@@ -193,7 +213,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     const float maximum_action_distance,
     std::optional<FactorSearchConfig> action_config,
     std::optional<RetrievalIntentGateConfig> intent_config,
-    const bool scan_action_candidates)
+    const bool scan_action_candidates,
+    std::optional<ContrastiveGateConfig> known_entity_config)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -205,7 +226,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       maximum_action_distance_(maximum_action_distance),
       action_config_(std::move(action_config)),
       intent_config_(std::move(intent_config)),
-      scan_action_candidates_(scan_action_candidates) {
+      scan_action_candidates_(scan_action_candidates),
+      known_entity_config_(std::move(known_entity_config)) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
@@ -223,15 +245,16 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
         }
     }
     if (intent_config_) {
-        validate_projection_config(intent_config_->search);
-        if (intent_config_->search.hidden_dimension !=
-                entity_config_.hidden_dimension ||
-            intent_config_->prototype.size() !=
-                intent_config_->search.query_dimension ||
-            !all_finite(intent_config_->prototype)) {
-            throw std::invalid_argument(
-                "retrieval-intent gate does not match the hidden-state contract");
-        }
+        validate_gate_config(
+            *intent_config_,
+            entity_config_.hidden_dimension,
+            "retrieval-intent gate does not match the hidden-state contract");
+    }
+    if (known_entity_config_) {
+        validate_gate_config(
+            *known_entity_config_,
+            entity_config_.hidden_dimension,
+            "known-entity gate does not match the hidden-state contract");
     }
     if (!std::isfinite(gate_) || !payloads_ ||
         !std::isfinite(maximum_action_distance_) || maximum_action_distance_ < 0.0F) {
@@ -302,7 +325,34 @@ FactorizedLayerMemoryHook::authorize_selection(
         entity_pin_, entity_config_, entity_labels_, entity_states);
     result.relation = nearest(
         relation_pin_, relation_config_, relation_labels_, relation_states);
-    if (!result.entity.accepted || !result.relation.accepted) {
+    if (!result.entity.accepted) {
+        result.known_entity_accepted = false;
+        return {std::move(result), {}};
+    }
+    if (known_entity_config_) {
+        if (result.entity.address_candidate >= entity_states.size()) {
+            throw std::runtime_error(
+                "factor evidence selected an unavailable knownness state");
+        }
+        const auto known_query = project(
+            known_entity_config_->search,
+            entity_states[result.entity.address_candidate]);
+        result.known_entity_distance = squared_distance(
+            known_query, known_entity_config_->prototype);
+        const auto radius_accepted =
+            result.known_entity_distance <=
+            known_entity_config_->search.maximum_distance;
+        auto margin_accepted = true;
+        if (!known_entity_config_->negative_prototype.empty()) {
+            result.unknown_entity_distance = squared_distance(
+                known_query, known_entity_config_->negative_prototype);
+            margin_accepted = result.known_entity_distance +
+                                  known_entity_config_->minimum_margin <=
+                              result.unknown_entity_distance;
+        }
+        result.known_entity_accepted = radius_accepted && margin_accepted;
+    }
+    if (!result.known_entity_accepted || !result.relation.accepted) {
         return {std::move(result), {}};
     }
 
@@ -342,8 +392,17 @@ FactorizedLayerMemoryHook::authorize_selection(
         const auto intent_query = project(intent_config_->search, action_state);
         result.intent_distance = squared_distance(
             intent_query, intent_config_->prototype);
-        result.intent_accepted =
+        const auto radius_accepted =
             result.intent_distance <= intent_config_->search.maximum_distance;
+        auto margin_accepted = true;
+        if (!intent_config_->negative_prototype.empty()) {
+            result.intent_negative_distance = squared_distance(
+                intent_query, intent_config_->negative_prototype);
+            margin_accepted = result.intent_distance +
+                                  intent_config_->minimum_margin <=
+                              result.intent_negative_distance;
+        }
+        result.intent_accepted = radius_accepted && margin_accepted;
     } else {
         result.intent_accepted = true;
     }

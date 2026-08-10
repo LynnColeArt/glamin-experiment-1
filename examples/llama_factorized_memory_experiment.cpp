@@ -1559,6 +1559,8 @@ int run(const std::string& model_path) {
             gx1::RetrievalIntentGateConfig{
                 factor_config(retrieval_intent_memory),
                 retrieval_intent_memory.keys.front(),
+                {},
+                0.0F,
             },
             true);
     };

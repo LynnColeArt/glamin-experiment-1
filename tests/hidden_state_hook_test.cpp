@@ -443,11 +443,25 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
                 1,
                 {0.0F, 1.0F},
                 gx1::ProjectionNormalization::none,
-                0.1F,
+                9.0F,
             },
             {4.0F},
+            {8.0F},
+            1.0F,
         },
-        true);
+        true,
+        gx1::ContrastiveGateConfig{
+            gx1::FactorSearchConfig{
+                2,
+                1,
+                {0.0F, 1.0F},
+                gx1::ProjectionNormalization::none,
+                1.0F,
+            },
+            {0.0F},
+            {10.0F},
+            1.0F,
+        });
 
     const std::vector<std::vector<float>> factors{{1.0F, 0.0F}};
     const auto accepted = hook.authorize_nearest(
@@ -455,10 +469,14 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
         factors,
         std::vector<float>{9.0F, 4.0F});
     expect(accepted.tuple_found && accepted.compatibility_accepted &&
-               accepted.intent_accepted && accepted.action_accepted,
+               accepted.known_entity_accepted && accepted.intent_accepted &&
+               accepted.action_accepted,
            "conjunctive authorization rejected a compatible retrieval");
     expect(accepted.compatibility_distance == 0.0F &&
-               accepted.intent_distance == 0.0F,
+               accepted.intent_distance == 0.0F &&
+               accepted.intent_negative_distance == 16.0F &&
+               accepted.known_entity_distance == 0.0F &&
+               accepted.unknown_entity_distance == 100.0F,
            "conjunctive authorization recorded the wrong distances");
 
     const auto denied = hook.authorize_nearest(
@@ -481,6 +499,26 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
                !incompatible.compatibility_accepted &&
                incompatible.intent_accepted && !incompatible.action_accepted,
            "tuple compatibility rejection hid the independent intent result");
+
+    const std::vector<std::vector<float>> unknown_factors{{1.0F, 10.0F}};
+    const auto unknown = hook.authorize_nearest(
+        unknown_factors,
+        factors,
+        std::vector<float>{9.0F, 4.0F});
+    expect(unknown.entity.accepted && !unknown.known_entity_accepted &&
+               !unknown.tuple_found && !unknown.action_accepted,
+           "known-entity veto did not stop an unknown factor candidate");
+    expect(unknown.known_entity_distance == 100.0F &&
+               unknown.unknown_entity_distance == 0.0F,
+           "known-entity veto did not retain contrastive diagnostics");
+
+    const auto margin_denied = hook.authorize_nearest(
+        factors,
+        factors,
+        std::vector<float>{9.0F, 6.1F});
+    expect(margin_denied.tuple_found && margin_denied.compatibility_accepted &&
+               !margin_denied.intent_accepted && !margin_denied.action_accepted,
+           "contrastive intent margin did not veto an ambiguous query");
 }
 
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
