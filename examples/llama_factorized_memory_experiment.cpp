@@ -4528,7 +4528,7 @@ int run(const std::string& model_path) {
                         maximum_negative_gap +
                         0.5F * (minimum_positive_gap - maximum_negative_gap);
                     entries.push_back({
-                        entity_labels.at(entity),
+                        static_cast<std::uint64_t>(entity),
                         *positive_prototype,
                         negative_prototype,
                         maximum_distance,
