@@ -3,8 +3,10 @@
 ## Status
 
 Protocol frozen on 2026-08-10 before implementation and before any prompt in
-the new frozen sets is evaluated. Results are intentionally absent until the
-development preflight and one-shot frozen stages run.
+the new frozen sets was evaluated. The first complete frozen run was executed
+the same day. Both local gates passed their independent criteria, but the
+composed path failed three all-or-nothing criteria. The frozen result is retained
+unchanged and persistence remains deferred.
 
 ## Motivation
 
@@ -174,10 +176,76 @@ would establish only that the explicit conjunction generalizes across these
 authored forms. It would not establish broad language understanding, robust
 adversarial safety, or authorization for external actions.
 
+## Implementation and Preflight Record
+
+The runtime now exposes compatibility and intent distances and acceptance
+decisions independently. Final application requires both decisions after the
+existing factor gates and exact tuple join.
+
+Development-only construction stopped before the frozen boundary several times.
+A final-token action projection did not strictly separate tuple compatibility
+at widths 64, 128, 256, 512, or 1024. Scanning all action-token states produced
+cross-tuple collisions, while concatenating raw entity and relation states left
+overlapping neighborhoods. The accepted representation concatenates normalized
+queries from the already fixed association-signal entity and centroid relation
+projections, then learns a 64-coordinate tuple-compatibility projection. The
+tuple-independent intent projection also uses 64 coordinates.
+
+The accepted development margins were:
+
+| Gate | Positive radius | Nearest negative |
+| --- | ---: | ---: |
+| Tuple compatibility | `0.377019` | `0.475405` |
+| Retrieval intent | `0.981531` | `1.06131` |
+
+Before frozen evaluation, local scoring was also corrected to measure each gate
+directly rather than treating an upstream miss as a local-gate failure. Full-path
+routing remained a separate composition measurement. The final development
+preflight passed with 18/18 compatibility positives, 90/90 cross-tuple
+rejections, 18/18 intent positives, and 36/36 eligible negative intent
+rejections.
+
+## Frozen Result
+
+The local frozen stage passed every preregistered criterion:
+
+| Measurement | Result |
+| --- | ---: |
+| Compatibility positives | 12/12 |
+| Cross-tuple compatibility rejections | 60/60 |
+| Intent positives | 12/12 |
+| Eligible negative intent exact no-ops | 36/36 |
+| Previous single-gate positive accepts | 12/12 |
+| Previous single-gate negative exact no-ops | 0/36 |
+
+The composition stage did not pass:
+
+| Measurement | Result |
+| --- | ---: |
+| Positive routes and rank-one targets | 11/12 |
+| New eligible wrong-intent exact no-ops | 17/18 |
+| Missing-tuple exact no-ops | 4/4 |
+| Unknown-entity factor-gate no-ops | 3/4 |
+| Unknown-relation factor-gate no-ops | 4/4 |
+| Previous wrong-intent regression no-ops | 30/30 |
+
+`resolve[Bellatrix]{color}` was the positive miss: both compatibility and
+intent rejected, leaving the unmodified target at rank 3191. The Draco/color
+counterfactual control passed compatibility and intent, applied the target
+state, and changed logits by `23.2255`. `ledger/Vega/color` was the remaining
+factor criterion failure: the entity gate accepted Vega, although later gates
+still prevented application and logits remained exactly unchanged.
+
+An observation-only diagnostic rerun added per-control gate output without
+changing any prompt, activation, projection, threshold, or decision. It
+reproduced every development, local, and composition count above.
+
 ## Consequence
 
-If every preregistered criterion passes, the next experiment may persist the
-entity space, relation space, tuple ledger, compatibility keys, intent
-representation, gates, and target states as one atomically swappable
-generation. If any criterion fails, persistence remains deferred and the
-frozen result is documented unchanged.
+The experiment establishes that separate compatibility and intent
+representations can solve the bounded local split and sharply outperform the
+previous single gate on its 36 frozen negatives. It does not establish that the
+conjunction is composition-stable: one unseen retrieval form was rejected and
+one unseen counterfactual was authorized. Because a composition criterion
+failed, persistence remains deferred and the frozen result is documented
+unchanged.

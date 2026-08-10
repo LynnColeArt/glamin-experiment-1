@@ -296,14 +296,15 @@ remain unmeasured.
 
 ## Next Experiment
 
-The subsequent [Gate-Local Authorization Invariance](gate-local-authorization-invariance.md)
-probe held association-signal entity addressing and later target action fixed.
-Its centroid relation representation passed 12/12 positives and 4/4 unknown
-relations. Authorization signal reached 11/12 positives but preserved exact
-no-op behavior on only 5/12 new wrong intents; composition reached 9/12 and
-failed. The next split should retain the successful entity and relation
-representations while separating tuple compatibility from retrieval intent and
-substantially expanding negative intent families. The complete contract should
-be persisted and live-swapped only after that authority boundary is measured
-independently. That split is preregistered in
-[Conjunctive Retrieval Authorization](conjunctive-retrieval-authorization.md).
+The subsequent [Conjunctive Retrieval Authorization](conjunctive-retrieval-authorization.md)
+probe retained association-signal entity addressing and centroid relations,
+then separated tuple compatibility from retrieval intent. Both local frozen
+stages passed: 12/12 positives for each gate, 60/60 cross-tuple rejections, and
+36/36 eligible negative no-ops. Composition reached 11/12 rank-one targets and
+17/18 new negative no-ops while preserving all 30 earlier wrong-intent no-ops.
+It nevertheless failed its strict criterion on one unseen retrieval form, one
+counterfactual, and one unknown-entity factor decision. A fresh replication
+should broaden positive syntax and counterfactual development coverage without
+tuning against these frozen examples, and should retest entity open-set
+rejection independently. Atomic persistence remains deferred until that full
+boundary passes.

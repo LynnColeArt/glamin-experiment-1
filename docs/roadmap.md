@@ -84,9 +84,10 @@ A rollback reproduced the baseline logits exactly in the same process.
     independently, then compose them on a third untouched split: relation
     passed 12/12 plus 4/4 negatives; authorization and composition failed their
     selectivity criteria.
-  - [ ] Separate tuple compatibility from retrieval intent and evaluate their
-    conjunction on new frozen positive, wrong-intent, and regression sets;
-    protocol frozen before implementation.
+  - [x] Separate tuple compatibility from retrieval intent and evaluate their
+    conjunction on new frozen positive, wrong-intent, and regression sets:
+    both local gates passed, while composition reached 11/12 positives and
+    17/18 new negative no-ops and therefore failed its strict criterion.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and
