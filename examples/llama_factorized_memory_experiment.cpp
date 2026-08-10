@@ -547,6 +547,23 @@ float probe_squared_distance(
     return static_cast<float>(distance);
 }
 
+float minimum_probe_distance(
+    const gx1::ActivationStateSequence& states,
+    const std::vector<float>& key,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty()) {
+        throw std::invalid_argument("probe distance requires candidate states");
+    }
+    auto minimum = std::numeric_limits<float>::max();
+    for (const auto& state : states) {
+        minimum = std::min(
+            minimum,
+            probe_squared_distance(
+                project_normalized_for_probe(state, memory), key));
+    }
+    return minimum;
+}
+
 gx1::ActivationMemoryBuildResult build_factor(
     const std::vector<FactorPrompt>& prompts,
     const std::vector<InferenceResult>& negatives,
@@ -1135,7 +1152,7 @@ int run(const std::string& model_path) {
         if (index % 3U < 2U) {
             compatibility_construction.push_back({
                 positive.tuple,
-                {positive.baseline.hidden_state},
+                positive.baseline.token_states,
                 positive.baseline.hidden_state,
                 positive.baseline.hidden_state,
             });
@@ -1147,14 +1164,14 @@ int run(const std::string& model_path) {
             });
         } else {
             compatibility_validation.push_back({
-                positive.tuple, {positive.baseline.hidden_state}});
+                positive.tuple, positive.baseline.token_states});
             intent_validation.push_back({
                 0U, {positive.baseline.hidden_state}});
         }
         for (std::size_t candidate = 0; candidate < tuples.size(); ++candidate) {
             if (candidate != positive.tuple) {
                 compatibility_negatives.push_back({
-                    candidate, {positive.baseline.hidden_state}});
+                    candidate, positive.baseline.token_states});
             }
         }
     }
@@ -1476,7 +1493,8 @@ int run(const std::string& model_path) {
             gx1::RetrievalIntentGateConfig{
                 factor_config(retrieval_intent_memory),
                 retrieval_intent_memory.keys.front(),
-            });
+            },
+            true);
     };
 
     bool action_views_recalled = true;
@@ -1948,8 +1966,6 @@ int run(const std::string& model_path) {
     std::size_t conjunctive_development_cross_rejections = 0U;
     std::size_t conjunctive_development_intent_accepts = 0U;
     for (const auto& positive : conjunctive_development_positives) {
-        const auto query = project_normalized_for_probe(
-            positive.baseline.hidden_state, tuple_compatibility_memory);
         for (std::size_t key = 0;
              key < tuple_compatibility_memory.keys.size();
              ++key) {
@@ -1958,8 +1974,10 @@ int run(const std::string& model_path) {
                 continue;
             }
             conjunctive_development_cross_rejections +=
-                probe_squared_distance(
-                    query, tuple_compatibility_memory.keys[key]) >
+                minimum_probe_distance(
+                    positive.baseline.token_states,
+                    tuple_compatibility_memory.keys[key],
+                    tuple_compatibility_memory) >
                         tuple_compatibility_memory.maximum_distance
                     ? 1U
                     : 0U;
@@ -2768,8 +2786,6 @@ int run(const std::string& model_path) {
                 prompt.second,
                 hidden_dimension,
                 target_tensor);
-            const auto query = project_normalized_for_probe(
-                baseline.hidden_state, tuple_compatibility_memory);
             for (std::size_t key = 0;
                  key < tuple_compatibility_memory.keys.size();
                  ++key) {
@@ -2778,8 +2794,10 @@ int run(const std::string& model_path) {
                     continue;
                 }
                 frozen_cross_rejections +=
-                    probe_squared_distance(
-                        query, tuple_compatibility_memory.keys[key]) >
+                    minimum_probe_distance(
+                        baseline.token_states,
+                        tuple_compatibility_memory.keys[key],
+                        tuple_compatibility_memory) >
                             tuple_compatibility_memory.maximum_distance
                         ? 1U
                         : 0U;

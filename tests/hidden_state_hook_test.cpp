@@ -446,11 +446,16 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
                 0.1F,
             },
             {4.0F},
-        });
+        },
+        true);
 
     const std::vector<std::vector<float>> factors{{1.0F, 0.0F}};
+    const std::vector<std::vector<float>> scannable_factors{
+        {1.0F, 0.0F}, {3.0F, 0.0F}};
     const auto accepted = hook.authorize_nearest(
-        factors, factors, std::vector<float>{3.0F, 4.0F});
+        scannable_factors,
+        scannable_factors,
+        std::vector<float>{9.0F, 4.0F});
     expect(accepted.tuple_found && accepted.compatibility_accepted &&
                accepted.intent_accepted && accepted.action_accepted,
            "conjunctive authorization rejected a compatible retrieval");
@@ -459,7 +464,9 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
            "conjunctive authorization recorded the wrong distances");
 
     const auto denied = hook.authorize_nearest(
-        factors, factors, std::vector<float>{3.0F, 9.0F});
+        scannable_factors,
+        scannable_factors,
+        std::vector<float>{9.0F, 9.0F});
     expect(denied.tuple_found && denied.compatibility_accepted &&
                !denied.intent_accepted && !denied.action_accepted,
            "retrieval-intent rejection did not veto compatibility");

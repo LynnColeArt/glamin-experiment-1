@@ -113,7 +113,8 @@ public:
         std::shared_ptr<const TupleResidualLedger> payloads,
         float maximum_action_distance = std::numeric_limits<float>::max(),
         std::optional<FactorSearchConfig> action_config = std::nullopt,
-        std::optional<RetrievalIntentGateConfig> intent_config = std::nullopt);
+        std::optional<RetrievalIntentGateConfig> intent_config = std::nullopt,
+        bool scan_action_candidates = false);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -165,6 +166,7 @@ private:
     float maximum_action_distance_{std::numeric_limits<float>::max()};
     std::optional<FactorSearchConfig> action_config_;
     std::optional<RetrievalIntentGateConfig> intent_config_;
+    bool scan_action_candidates_{false};
 };
 
 } // namespace gx1

@@ -192,7 +192,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     std::shared_ptr<const TupleResidualLedger> payloads,
     const float maximum_action_distance,
     std::optional<FactorSearchConfig> action_config,
-    std::optional<RetrievalIntentGateConfig> intent_config)
+    std::optional<RetrievalIntentGateConfig> intent_config,
+    const bool scan_action_candidates)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -203,7 +204,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       payloads_(std::move(payloads)),
       maximum_action_distance_(maximum_action_distance),
       action_config_(std::move(action_config)),
-      intent_config_(std::move(intent_config)) {
+      intent_config_(std::move(intent_config)),
+      scan_action_candidates_(scan_action_candidates) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
@@ -300,13 +302,23 @@ FactorizedLayerMemoryHook::authorize_selection(
         return {std::move(result), {}};
     }
 
-    const auto action_query = action_config_
-                                  ? project(*action_config_, action_state)
-                                  : action_state;
-    auto action = payloads_->select(
-        result.entity.factor_label,
-        result.relation.factor_label,
-        action_query);
+    const auto select_action = [&](const std::vector<float>& state) {
+        return payloads_->select(
+            result.entity.factor_label,
+            result.relation.factor_label,
+            action_config_ ? project(*action_config_, state) : state);
+    };
+    auto action = select_action(action_state);
+    if (scan_action_candidates_) {
+        for (const auto& state : entity_states) {
+            auto candidate = select_action(state);
+            if (candidate.residual != nullptr &&
+                (action.residual == nullptr ||
+                 candidate.distance < action.distance)) {
+                action = std::move(candidate);
+            }
+        }
+    }
     if (action.residual == nullptr) {
         return {std::move(result), std::move(action)};
     }
