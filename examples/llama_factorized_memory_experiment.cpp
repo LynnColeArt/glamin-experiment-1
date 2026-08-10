@@ -3602,7 +3602,34 @@ int run(const std::string& model_path) {
                         gx1::ActivationProjectionStrategy::authorization_signal,
                         gx1::ActivationValidationScope::global,
                         gx1::ActivationKeyStrategy::association_centroid,
+                        false,
                     });
+                auto maximum_positive_distance = 0.0F;
+                auto minimum_negative_distance =
+                    std::numeric_limits<float>::max();
+                for (const auto& state : positive_states) {
+                    maximum_positive_distance = std::max(
+                        maximum_positive_distance,
+                        probe_squared_distance(
+                            project_normalized_for_probe(state, memory),
+                            memory.keys.front()));
+                }
+                for (const auto& state : negative_states) {
+                    minimum_negative_distance = std::min(
+                        minimum_negative_distance,
+                        probe_squared_distance(
+                            project_normalized_for_probe(state, memory),
+                            memory.keys.front()));
+                }
+                memory.maximum_validation_distance =
+                    maximum_positive_distance;
+                memory.minimum_negative_distance =
+                    minimum_negative_distance;
+                memory.maximum_distance = maximum_positive_distance +
+                                          0.5F * std::max(
+                                                     0.0F,
+                                                     minimum_negative_distance -
+                                                         maximum_positive_distance);
                 auto calibration = calibrate_contrastive_gate(
                     memory, positive_states, negative_states);
                 const auto accepted = [&](const std::vector<float>& state) {

@@ -81,6 +81,14 @@ Both inequalities must strictly separate all development examples. The
 negative prototype is a veto signal, not an action class. No tuple-specific
 intent prototype, threshold, or margin is permitted.
 
+Development clarified the conjunctive calibration before any prior-frozen or
+new frozen prompt was evaluated. The radius encloses the hardest development
+positive and uses half of any remaining gap to the nearest negative; if those
+radial neighborhoods overlap, the radius stops at the hardest positive. The
+signed prototype threshold must then reject every overlapping negative. Thus
+every positive must satisfy both conditions and every negative must fail at
+least one; radial separation is not treated as a hidden third criterion.
+
 Widths may be selected from `64`, `128`, `256`, and `512` using development
 only. Thresholds and margins must be derived mechanically from the hardest
 development positive and nearest development negative with a nonzero gap. A
