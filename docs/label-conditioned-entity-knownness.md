@@ -59,6 +59,10 @@ than merely confirm membership in the union of known labels. The verifier may
 veto the proposed entity but may not choose a replacement or authorize an
 action. Margins may be signed; each is the midpoint of the hardest positive and
 strongest matched negative distance-difference scores for that label.
+Each radius encloses the hardest matching development positive and uses half
+of any remaining radial gap to the nearest matched negative; if radial
+neighborhoods overlap, it stops at the hardest positive and the contrastive or
+identity condition must reject the overlap.
 
 Projection widths may be tried in the fixed order `32`, `64`, `128`, `256`, and
 `512`. The first width that strictly separates every declared development
