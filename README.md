@@ -516,6 +516,8 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
    Bellatrix form.
 4. Preregister a different entity-knownness representation that can verify the
    selected label without pooling all registered entities into one prototype.
+   The frozen protocol is in
+   [Label-Conditioned Entity Knownness](docs/label-conditioned-entity-knownness.md).
 5. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
 6. Persist entity space, relation space, tuple membership, action variants,
