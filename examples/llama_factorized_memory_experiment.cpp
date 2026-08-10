@@ -1217,32 +1217,63 @@ int run(const std::string& model_path) {
             gx1::ActivationValidationScope::association,
         });
     build_stage("tuple-compatibility");
-    const auto tuple_compatibility_memory =
-        gx1::ActivationMemoryBuilder::build(
-            compatibility_construction,
-            compatibility_negatives,
-            compatibility_validation,
-            gx1::ActivationMemoryBuildConfig{
-                256U,
-                0.5F,
-                false,
-                gx1::ActivationProjectionStrategy::association_signal,
-                gx1::ActivationValidationScope::global,
-                gx1::ActivationKeyStrategy::association_centroid,
-            });
+    const auto tuple_compatibility_memory = [&]()
+        -> gx1::ActivationMemoryBuildResult {
+        for (const auto width : {64U, 128U, 256U, 512U, 1024U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    compatibility_construction,
+                    compatibility_negatives,
+                    compatibility_validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::association_signal,
+                        gx1::ActivationValidationScope::global,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                    });
+                std::cout << "development_width=tuple-compatibility/"
+                          << width << "/accepted\n";
+                return memory;
+            } catch (const std::exception& error) {
+                std::cout << "development_width=tuple-compatibility/"
+                          << width << "/rejected reason=" << error.what()
+                          << '\n';
+            }
+        }
+        throw std::runtime_error(
+            "no tuple-compatibility development width separates");
+    }();
     build_stage("retrieval-intent");
-    const auto retrieval_intent_memory = gx1::ActivationMemoryBuilder::build(
-        intent_construction,
-        intent_negatives,
-        intent_validation,
-        gx1::ActivationMemoryBuildConfig{
-            256U,
-            0.5F,
-            false,
-            gx1::ActivationProjectionStrategy::authorization_signal,
-            gx1::ActivationValidationScope::global,
-            gx1::ActivationKeyStrategy::association_centroid,
-        });
+    const auto retrieval_intent_memory = [&]()
+        -> gx1::ActivationMemoryBuildResult {
+        for (const auto width : {64U, 128U, 256U, 512U, 1024U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    intent_construction,
+                    intent_negatives,
+                    intent_validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::authorization_signal,
+                        gx1::ActivationValidationScope::global,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                    });
+                std::cout << "development_width=retrieval-intent/"
+                          << width << "/accepted\n";
+                return memory;
+            } catch (const std::exception& error) {
+                std::cout << "development_width=retrieval-intent/"
+                          << width << "/rejected reason=" << error.what()
+                          << '\n';
+            }
+        }
+        throw std::runtime_error(
+            "no retrieval-intent development width separates");
+    }();
     build_stage("entity-address-variance");
     const auto entity_address_variance_memory = build_factor(
         entity_prompts,
