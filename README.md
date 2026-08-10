@@ -38,14 +38,15 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-The latest probe holds relation, tuple, action, and later target-state machinery
-fixed while comparing variance and association-signal entity projections.
-Association signal identified the correct entity on 18/18 new frozen prompts,
-versus 13/18 for variance, and rejected 6/6 unknown-entity controls exactly. It
-also repaired the preceding known regression set to 12/12. The preregistered
-end-to-end criterion nevertheless failed at 9/18: six URI forms stopped at the
-unchanged action gate and three material questions stopped at the unchanged
-relation gate. Every authorized target-state action remained rank one, 9/9.
+The latest probe changes the two downstream representations independently. A
+relation centroid identified 12/12 frozen relations and rejected 4/4 unknown
+relations. A contrastive authorization projection improved positive coverage
+from the variance baseline's 9/12 to 11/12, with rank-one recall whenever the
+complete path authorized, but preserved exact no-op behavior on only 5/12 fresh
+wrong intents. Composition consequently reached 9/12 rank-one targets and
+failed its preregistered authority criterion. The result separates a successful
+relation representation from an authorization signal that is broad but not yet
+specific enough.
 
 ## Research questions
 
@@ -114,7 +115,9 @@ This repository currently provides:
   projection, Glamin index, address-selection policy, and residual payloads;
 - a model-agnostic activation-memory builder that derives keys and
   teacher-minus-query actions from grouped forward passes;
-- variance and association-signal projection strategies;
+- variance, association-signal, and contrastive authorization-signal
+  projection strategies;
+- selected-view and normalized association-centroid key construction;
 - global and runtime-topology-aware gate calibration;
 - factorized entity and relation search, an exact tuple ledger, and a
   tuple-local action gate;
@@ -181,6 +184,7 @@ measurable. Model files are not included in this repository.
 | Topology-aware action probe | 12/12 frozen prompts routed; 9/12 produced rank-one targets | 12/12 tuple-matched wrong intents and 2/2 missing tuples were exact no-ops | Authorization generalized; selected residual transfer remained form-sensitive |
 | Two-stage target-state probe | 10/12 frozen prompts routed; target state reached rank one on 10/10 authorized prompts versus 6/10 for residuals | 12/12 wrong intents, 2/2 missing tuples, and 2 rejected archive prompts were exact no-ops | Missed its 12/12 criterion at the compact Arcturus entity gate |
 | Entity-address invariance probe | Association signal identified 18/18 entities versus 13/18 for variance; 9/9 authorized target states reached rank one | 6/6 unknown entities, 12/12 wrong intents, and 2/2 missing tuples were exact no-ops | End-to-end criterion failed at 9/18 on unchanged relation and action gates |
+| Gate-local invariance probe | Relation centroid matched 12/12; authorization signal accepted and recalled 11/12; composition recalled 9/12 | Relation rejected 4/4 unknowns; action rejected 5/12 fresh wrong intents; composition preserved 4/4 missing tuples, 3/4 unknown entities, and 4/4 unknown relations | Relation passed independently; authorization and composition failed their frozen criteria |
 
 ### Topology-aware action probe
 
@@ -251,6 +255,30 @@ three material questions passed entity checks but failed the unchanged relation
 gate. Every authorized target-state action produced its stored target at rank
 one. This isolates entity invariance as solved on the tested split while moving
 the next boundary to relation and action-context generalization.
+
+### Gate-local authorization invariance probe
+
+The next probe held association-signal entity addressing, exact tuple
+membership, and later target-state action fixed. It compared selected relation
+views with one normalized centroid per relation, then compared variance action
+projection with a tuple-scoped positive-versus-wrong-intent authorization
+projection. Construction inputs, negatives, widths, and gate interpolation
+were otherwise held constant.
+
+The relation result passed: both variants matched 12/12 frozen positives, and
+the centroid rejected 4/4 unknown-relation controls. Authorization signal
+accepted 11/12 positives and produced rank-one targets on those 11, compared
+with 9/12 variance acceptances. It failed selectivity, however: only 5/12 new
+summarization and alphabetization prompts were exact no-ops. The composed path
+therefore reached 9/12 rank-one targets and rejected only 2/6 fresh
+formatting-only intents. Missing tuples remained 4/4 no-ops, unknown relations
+4/4, and unknown entities 3/4.
+
+This is a controlled negative result. Centroid relation addressing generalized
+on its independent split; the contrastive coordinates expanded authorization
+coverage but did not isolate retrieval intent. The frozen probe remains
+unchanged. See the full preregistration, preflight amendment, and result in
+[Gate-local authorization invariance](docs/gate-local-authorization-invariance.md).
 
 ## Calibration semantics
 
@@ -354,7 +382,14 @@ entity_address_evaluation_summary=variance_routes 9/18 variance_entities 13/18 \
 variance_rank_one 9/18 association_routes 9/18 association_entities 18/18 \
 association_rank_one 9/18 unknown_entity_noops 6/6 historical_routes 12/12 \
 historical_rank_one 12/12
-factorized memory experiment failed: association-signal entity addressing failed the frozen criterion
+relation_prototype_evaluation_summary=nearest 12/12 prototype 12/12 \
+negative_rejections 4/4
+authorization_evaluation_summary=variance 9/12 signal 11/12 \
+signal_rank_one 11/12 negative_noops 5/12
+gate_composition_evaluation_summary=routes 9/12 rank_one 9/12 \
+wrong_intent_noops 2/6 missing_noops 4/4 unknown_entity_noops 3/4 \
+unknown_relation_noops 4/4
+factorized memory experiment failed: gate-local authorization invariance failed a frozen criterion
 ```
 
 Quantized kernels, compiler versions, processor behavior, and future dependency
@@ -381,6 +416,7 @@ The most relevant documents are:
 - [Architecture](docs/architecture.md)
 - [Activation-derived memory report](docs/activation-memory.md)
 - [Factorized memory report](docs/factorized-memory.md)
+- [Gate-local authorization invariance](docs/gate-local-authorization-invariance.md)
 - [Hook artifact contract](docs/hook-artifact.md)
 - [Generation semantics](docs/generation-semantics.md)
 - [Safety model](docs/safety-model.md)
@@ -422,8 +458,9 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
   authored surface forms.
 - Residual actions remain view-conditioned; later target states are 10/10
   conditional on authorization but use aggressive full-state replacement.
-- Relation and action-context gates failed 3 and 6 of the latest frozen prompts,
-  respectively, limiting end-to-end recall to 9/18.
+- Relation centroids passed the latest independent relation split, but the
+  authorization-signal action gate admitted 7/12 fresh wrong intents and the
+  composed path admitted 4/6 more; action authority is not form-stable.
 - Effects on multi-token continuations and unrelated model capabilities have
   not been measured.
 - The factorized tuple/action ledger is not yet persisted as one atomic Glamin
@@ -434,16 +471,19 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
 
 ## Near-term research agenda
 
-1. Leave every existing frozen prompt untouched and create a new split for
-   form-stable relation and action-context representations.
-2. Hold association-signal entity addressing, later target-state action, and
-   every current wrong-intent, unknown-entity, and missing-tuple control fixed.
-3. Persist entity space, relation space, tuple membership, action variants,
+1. Leave every existing frozen prompt untouched and retain the successful
+   association-signal entity and centroid relation representations.
+2. Split authorization into tuple compatibility and an independently calibrated
+   retrieval-intent decision; expand development and frozen wrong-intent
+   families before composing another gate.
+3. Hold later target-state action and every current wrong-intent,
+   unknown-factor, and missing-tuple control fixed as regression evidence.
+4. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
-4. Add generation-A/generation-B behavioral baselines and geometry diffs.
-5. Measure larger memories, broader negatives, multi-token recall, and general
+5. Add generation-A/generation-B behavioral baselines and geometry diffs.
+6. Measure larger memories, broader negatives, multi-token recall, and general
    capability retention.
-6. Add durable trace segments and an immutable source ledger before considering
+7. Add durable trace segments and an immutable source ledger before considering
    procedural mini-apps or external capabilities.
 
 ## Citation

@@ -286,11 +286,102 @@ entity_address_evaluation_prompts(
     };
 }
 
+std::vector<std::pair<std::string, std::string>>
+relation_prototype_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"category",
+         "Retrieve memory for " + entity +
+             ". Requested property category: " + relation + ".\nAnswer:"},
+        {"predicate",
+         "Stored object: " + entity + "\nPredicate label: " + relation +
+             "\nValue:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+relation_prototype_evaluation_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"property-type",
+         "For " + entity + ", recall the value whose property type is " +
+             relation + ".\nAnswer:"},
+        {"triple",
+         "record(subject=" + entity + ", predicate=" + relation +
+             ") -> object:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+authorization_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"authorized",
+         "Memory retrieval authorized: return " + relation + " for " + entity +
+             ".\nAnswer:"},
+        {"read",
+         "READ fact(entity=" + entity + ", relation=" + relation + ") =>"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+authorization_evaluation_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"execute-recall",
+         "Execute stored-value recall for " + entity + " / " + relation +
+             ".\nResult:"},
+        {"get",
+         "memory.get(" + entity + ", " + relation + ") ->"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+authorization_evaluation_negatives(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"summarize",
+         "Subject " + entity + ", property " + relation +
+             ": summarize these labels without recalling their stored value."},
+        {"alphabetize",
+         "Alphabetize the words " + entity + " and " + relation +
+             "; do not execute memory retrieval."},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+gate_composition_evaluation_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"ledger",
+         "Consult the fact ledger; subject " + entity + ", property " +
+             relation + ".\nStored answer:"},
+        {"resolve",
+         "resolve-memory{subject:" + entity + ",predicate:" + relation +
+             "}=>"},
+    };
+}
+
+std::string gate_composition_negative_prompt(
+    const std::string& entity,
+    const std::string& relation) {
+    return "Inspect the ledger labels " + entity + " and " + relation +
+           " for formatting only; no stored-value lookup is authorized.";
+}
+
 gx1::ActivationMemoryBuildResult build_factor(
     const std::vector<FactorPrompt>& prompts,
     const std::vector<InferenceResult>& negatives,
     const std::vector<std::pair<std::size_t, InferenceResult>>& validation,
-    const gx1::ActivationProjectionStrategy projection_strategy) {
+    const gx1::ActivationProjectionStrategy projection_strategy,
+    const gx1::ActivationKeyStrategy key_strategy =
+        gx1::ActivationKeyStrategy::selected_views) {
     std::vector<gx1::ActivationMemoryConstructionView> construction;
     for (const auto& prompt : prompts) {
         construction.push_back({
@@ -317,6 +408,8 @@ gx1::ActivationMemoryBuildResult build_factor(
             0.5F,
             false,
             projection_strategy,
+            gx1::ActivationValidationScope::global,
+            key_strategy,
         });
 }
 
@@ -584,14 +677,12 @@ int run(const std::string& model_path) {
         "factorized-relations",
         relation_memory.query_dimension,
         flatten(relation_memory.keys));
-    std::vector<std::uint64_t> entity_labels;
-    for (const auto& prompt : entity_prompts) {
-        entity_labels.push_back(prompt.factor);
-    }
-    std::vector<std::uint64_t> relation_labels;
-    for (const auto& prompt : relation_prompts) {
-        relation_labels.push_back(prompt.factor);
-    }
+    const std::vector<std::uint64_t> entity_labels(
+        entity_memory.key_associations.begin(),
+        entity_memory.key_associations.end());
+    const std::vector<std::uint64_t> relation_labels(
+        relation_memory.key_associations.begin(),
+        relation_memory.key_associations.end());
     std::vector<ActionViewSpec> action_view_specs;
     bool action_teachers_valid = true;
     for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
@@ -768,6 +859,58 @@ int run(const std::string& model_path) {
         }
     }
 
+    auto relation_prototype_validation = relation_validation;
+    std::vector<EntityAddressProbeSpec> relation_prototype_development;
+    auto authorization_validation = action_validation;
+    std::vector<EntityAddressProbeSpec> authorization_development;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        for (const auto& prompt : relation_prototype_development_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            auto inference = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            relation_prototype_validation.emplace_back(
+                tuple.relation, inference);
+            relation_prototype_development.push_back({
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                std::move(inference),
+            });
+        }
+        for (const auto& prompt : authorization_development_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            auto inference = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            authorization_validation.push_back({
+                tuple_index,
+                {inference.hidden_state},
+            });
+            authorization_development.push_back({
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                std::move(inference),
+            });
+        }
+    }
+
+    const auto build_stage = [](const char* stage) {
+        std::cout << "development_build=" << stage << std::endl;
+    };
+    build_stage("action-baseline");
     const auto action_memory = gx1::ActivationMemoryBuilder::build(
         action_construction,
         action_negatives,
@@ -779,11 +922,52 @@ int run(const std::string& model_path) {
             gx1::ActivationProjectionStrategy::variance,
             gx1::ActivationValidationScope::association,
         });
+    build_stage("relation-nearest");
+    const auto relation_nearest_candidate_memory = build_factor(
+        relation_prompts,
+        relation_negatives,
+        relation_prototype_validation,
+        gx1::ActivationProjectionStrategy::association_signal);
+    build_stage("relation-prototype");
+    const auto relation_prototype_memory = build_factor(
+        relation_prompts,
+        relation_negatives,
+        relation_prototype_validation,
+        gx1::ActivationProjectionStrategy::association_signal,
+        gx1::ActivationKeyStrategy::association_centroid);
+    build_stage("authorization-variance");
+    const auto authorization_variance_memory = gx1::ActivationMemoryBuilder::build(
+        action_construction,
+        action_negatives,
+        authorization_validation,
+        gx1::ActivationMemoryBuildConfig{
+            256U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::variance,
+            gx1::ActivationValidationScope::association,
+            gx1::ActivationKeyStrategy::selected_views,
+            false,
+        });
+    build_stage("authorization-signal");
+    const auto authorization_signal_memory = gx1::ActivationMemoryBuilder::build(
+        action_construction,
+        action_negatives,
+        authorization_validation,
+        gx1::ActivationMemoryBuildConfig{
+            256U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::authorization_signal,
+            gx1::ActivationValidationScope::association,
+        });
+    build_stage("entity-address-variance");
     const auto entity_address_variance_memory = build_factor(
         entity_prompts,
         entity_negatives,
         entity_address_entity_validation,
         gx1::ActivationProjectionStrategy::variance);
+    build_stage("entity-address-association");
     const auto entity_address_association_memory = build_factor(
         entity_prompts,
         entity_negatives,
@@ -799,6 +983,14 @@ int run(const std::string& model_path) {
               << " entity_address_negative="
               << entity_address_association_memory.minimum_negative_distance
               << '\n';
+    std::cout << "relation_nearest_candidate_radius="
+              << relation_nearest_candidate_memory.maximum_distance
+              << " relation_prototype_radius="
+              << relation_prototype_memory.maximum_distance
+              << " authorization_variance_radius="
+              << authorization_variance_memory.maximum_distance
+              << " authorization_signal_radius="
+              << authorization_signal_memory.maximum_distance << '\n';
 
     auto payloads = std::make_shared<gx1::TupleResidualLedger>();
     for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
@@ -816,6 +1008,23 @@ int run(const std::string& model_path) {
             tuple.relation,
             tuple.late_teacher.hidden_state);
     }
+    auto authorization_variance_payloads =
+        std::make_shared<gx1::TupleResidualLedger>();
+    auto authorization_signal_payloads =
+        std::make_shared<gx1::TupleResidualLedger>();
+    for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
+        const auto& action = action_view_specs[index];
+        authorization_variance_payloads->insert_variant(
+            action.entity,
+            action.relation,
+            authorization_variance_memory.keys[index],
+            authorization_variance_memory.residuals[index]);
+        authorization_signal_payloads->insert_variant(
+            action.entity,
+            action.relation,
+            authorization_signal_memory.keys[index],
+            authorization_signal_memory.residuals[index]);
+    }
 
     const auto entity_address_variance_generation = generations.mount_flat(
         "entity-address-variance",
@@ -825,6 +1034,20 @@ int run(const std::string& model_path) {
         "entity-address-association",
         entity_address_association_memory.query_dimension,
         flatten(entity_address_association_memory.keys));
+    const auto relation_nearest_candidate_generation = generations.mount_flat(
+        "relation-nearest-candidate",
+        relation_nearest_candidate_memory.query_dimension,
+        flatten(relation_nearest_candidate_memory.keys));
+    const auto relation_prototype_generation = generations.mount_flat(
+        "relation-prototype",
+        relation_prototype_memory.query_dimension,
+        flatten(relation_prototype_memory.keys));
+    const std::vector<std::uint64_t> relation_nearest_candidate_labels(
+        relation_nearest_candidate_memory.key_associations.begin(),
+        relation_nearest_candidate_memory.key_associations.end());
+    const std::vector<std::uint64_t> relation_prototype_labels(
+        relation_prototype_memory.key_associations.begin(),
+        relation_prototype_memory.key_associations.end());
 
     const auto make_hook = [&]() {
         generations.activate(entity_generation);
@@ -865,6 +1088,35 @@ int run(const std::string& model_path) {
             payloads,
             action_memory.maximum_distance,
             factor_config(action_memory));
+    };
+
+    const auto make_gate_invariance_hook = [&](const bool prototype_relation,
+                                                const bool signal_authorization) {
+        const auto& candidate_relation =
+            prototype_relation ? relation_prototype_memory
+                               : relation_nearest_candidate_memory;
+        const auto& candidate_action =
+            signal_authorization ? authorization_signal_memory
+                                 : authorization_variance_memory;
+        generations.activate(entity_address_association_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(
+            prototype_relation ? relation_prototype_generation
+                               : relation_nearest_candidate_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(entity_address_association_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(candidate_relation),
+            prototype_relation ? relation_prototype_labels
+                               : relation_nearest_candidate_labels,
+            1.0F,
+            signal_authorization ? authorization_signal_payloads
+                                 : authorization_variance_payloads,
+            candidate_action.maximum_distance,
+            factor_config(candidate_action));
     };
 
     bool action_views_recalled = true;
@@ -1207,6 +1459,129 @@ int run(const std::string& model_path) {
     if (!entity_address_missing_abstained) {
         throw std::runtime_error(
             "entity-address development failed compositional abstention");
+    }
+
+    std::size_t relation_nearest_development_matches = 0U;
+    std::size_t relation_prototype_development_matches = 0U;
+    for (const auto& positive : relation_prototype_development) {
+        const auto nearest = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_gate_invariance_hook(false, false),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto prototype = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_gate_invariance_hook(true, false),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto nearest_match =
+            nearest.hook.relation.accepted &&
+            nearest.hook.relation.factor_label == positive.relation;
+        const auto prototype_match =
+            prototype.hook.relation.accepted &&
+            prototype.hook.relation.factor_label == positive.relation;
+        relation_nearest_development_matches += nearest_match ? 1U : 0U;
+        relation_prototype_development_matches += prototype_match ? 1U : 0U;
+        std::cout << "relation_prototype_development=" << positive.name << '/'
+                  << entities[positive.entity] << '/'
+                  << relations[positive.relation]
+                  << " nearest_distance=" << nearest.hook.relation.distance
+                  << " nearest_match=" << (nearest_match ? "yes" : "no")
+                  << " prototype_distance="
+                  << prototype.hook.relation.distance
+                  << " prototype_match="
+                  << (prototype_match ? "yes" : "no") << '\n';
+    }
+    std::cout << "relation_prototype_development_summary=nearest "
+              << relation_nearest_development_matches << '/'
+              << relation_prototype_development.size() << " prototype "
+              << relation_prototype_development_matches << '/'
+              << relation_prototype_development.size() << '\n';
+    if (relation_prototype_development_matches !=
+        relation_prototype_development.size()) {
+        throw std::runtime_error(
+            "relation prototype failed its development set");
+    }
+
+    std::size_t authorization_variance_development_accepts = 0U;
+    std::size_t authorization_signal_development_accepts = 0U;
+    for (const auto& positive : authorization_development) {
+        const auto variance = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_gate_invariance_hook(true, false),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto signal = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_gate_invariance_hook(true, true),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto variance_accept = variance.hook.entity.accepted &&
+                                     variance.hook.relation.accepted &&
+                                     variance.hook.tuple_found &&
+                                     variance.hook.action_accepted;
+        const auto signal_accept = signal.hook.entity.accepted &&
+                                   signal.hook.relation.accepted &&
+                                   signal.hook.tuple_found &&
+                                   signal.hook.action_accepted;
+        authorization_variance_development_accepts +=
+            variance_accept ? 1U : 0U;
+        authorization_signal_development_accepts +=
+            signal_accept ? 1U : 0U;
+        std::cout << "authorization_development=" << positive.name << '/'
+                  << entities[positive.entity] << '/'
+                  << relations[positive.relation]
+                  << " variance_distance=" << variance.hook.action_distance
+                  << " variance_accept="
+                  << (variance_accept ? "yes" : "no")
+                  << " signal_distance=" << signal.hook.action_distance
+                  << " signal_accept=" << (signal_accept ? "yes" : "no")
+                  << '\n';
+    }
+    std::cout << "authorization_development_summary=variance "
+              << authorization_variance_development_accepts << '/'
+              << authorization_development.size() << " signal "
+              << authorization_signal_development_accepts << '/'
+              << authorization_development.size() << '\n';
+    if (authorization_signal_development_accepts !=
+        authorization_development.size()) {
+        throw std::runtime_error(
+            "authorization-signal projection failed its development set");
+    }
+
+    bool authorization_wrong_intents_abstained = true;
+    for (const auto& negative : wrong_intents) {
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            negative.prompt,
+            make_gate_invariance_hook(true, true),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto delta = maximum_logit_difference(
+            negative.baseline.logits, memory.logits);
+        authorization_wrong_intents_abstained =
+            authorization_wrong_intents_abstained &&
+            memory.hook.entity.accepted && memory.hook.relation.accepted &&
+            memory.hook.tuple_found && !memory.hook.action_accepted &&
+            !memory.hook.applied && delta <= 1.0e-5F;
+    }
+    if (!authorization_wrong_intents_abstained) {
+        throw std::runtime_error(
+            "authorization-signal projection admitted a wrong intent");
     }
 
     std::size_t evaluation_routed = 0U;
@@ -1553,14 +1928,358 @@ int run(const std::string& model_path) {
               << " historical_rank_one "
               << entity_address_historical_recall << '/'
               << two_stage_evaluation_count << '\n';
-    if (entity_address_association_evaluation_routes !=
-            entity_address_evaluation_count ||
-        entity_address_association_evaluation_recall !=
-            entity_address_evaluation_count ||
-        entity_address_unknown_entity_noops !=
-            entity_address_unknown_entity_count) {
+    if (entity_address_association_evaluation_routes != 9U ||
+        entity_address_association_evaluation_recall != 9U ||
+        entity_address_association_evaluation_entities != 18U ||
+        entity_address_unknown_entity_noops != 6U ||
+        entity_address_historical_routes != 12U ||
+        entity_address_historical_recall != 12U) {
         throw std::runtime_error(
-            "association-signal entity addressing failed the frozen criterion");
+            "historical entity-address frozen result drifted");
+    }
+
+    std::size_t relation_nearest_evaluation_matches = 0U;
+    std::size_t relation_prototype_evaluation_matches = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : relation_prototype_evaluation_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto nearest = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(false, false),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto prototype = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, false),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto nearest_match =
+                nearest.hook.relation.accepted &&
+                nearest.hook.relation.factor_label == tuple.relation;
+            const auto prototype_match =
+                prototype.hook.relation.accepted &&
+                prototype.hook.relation.factor_label == tuple.relation;
+            relation_nearest_evaluation_matches += nearest_match ? 1U : 0U;
+            relation_prototype_evaluation_matches += prototype_match ? 1U : 0U;
+            std::cout << "relation_prototype_evaluation=" << held_out.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " nearest_distance=" << nearest.hook.relation.distance
+                      << " nearest_match="
+                      << (nearest_match ? "yes" : "no")
+                      << " prototype_distance="
+                      << prototype.hook.relation.distance
+                      << " prototype_match="
+                      << (prototype_match ? "yes" : "no") << '\n';
+        }
+    }
+    const auto relation_evaluation_count = tuples.size() * 2U;
+    std::size_t relation_prototype_negative_rejections = 0U;
+    std::size_t relation_prototype_negative_count = 0U;
+    for (const auto& unknown : {std::string("temperature"), std::string("age")}) {
+        for (const auto& held_out : relation_prototype_evaluation_prompts(
+                 "Arcturus", unknown)) {
+            ++relation_prototype_negative_count;
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, false),
+                target_states,
+                target_tensor,
+                action_tensor);
+            relation_prototype_negative_rejections +=
+                !memory.hook.relation.accepted ? 1U : 0U;
+        }
+    }
+    std::cout << "relation_prototype_evaluation_summary=nearest "
+              << relation_nearest_evaluation_matches << '/'
+              << relation_evaluation_count << " prototype "
+              << relation_prototype_evaluation_matches << '/'
+              << relation_evaluation_count << " negative_rejections "
+              << relation_prototype_negative_rejections << '/'
+              << relation_prototype_negative_count << '\n';
+
+    std::size_t authorization_variance_evaluation_accepts = 0U;
+    std::size_t authorization_signal_evaluation_accepts = 0U;
+    std::size_t authorization_signal_evaluation_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : authorization_evaluation_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto variance = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, false),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto signal = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto variance_accept = variance.hook.entity.accepted &&
+                                         variance.hook.relation.accepted &&
+                                         variance.hook.tuple_found &&
+                                         variance.hook.action_accepted;
+            const auto signal_accept = signal.hook.entity.accepted &&
+                                       signal.hook.relation.accepted &&
+                                       signal.hook.tuple_found &&
+                                       signal.hook.action_accepted;
+            const auto signal_rank = token_rank(signal.logits, tuple.target_token);
+            authorization_variance_evaluation_accepts +=
+                variance_accept ? 1U : 0U;
+            authorization_signal_evaluation_accepts += signal_accept ? 1U : 0U;
+            authorization_signal_evaluation_recall +=
+                signal_accept && signal_rank == 1U ? 1U : 0U;
+            std::cout << "authorization_evaluation=" << held_out.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " variance_distance=" << variance.hook.action_distance
+                      << " variance_accept="
+                      << (variance_accept ? "yes" : "no")
+                      << " signal_distance=" << signal.hook.action_distance
+                      << " signal_accept="
+                      << (signal_accept ? "yes" : "no")
+                      << " signal_rank=" << signal_rank << '\n';
+        }
+    }
+    const auto authorization_evaluation_count = tuples.size() * 2U;
+    std::size_t authorization_negative_noops = 0U;
+    std::size_t authorization_negative_count = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : authorization_evaluation_negatives(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            ++authorization_negative_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    memory.hook.relation.accepted &&
+                                    memory.hook.tuple_found &&
+                                    !memory.hook.action_accepted &&
+                                    !memory.hook.applied && delta <= 1.0e-5F;
+            authorization_negative_noops += exact_noop ? 1U : 0U;
+        }
+    }
+    std::cout << "authorization_evaluation_summary=variance "
+              << authorization_variance_evaluation_accepts << '/'
+              << authorization_evaluation_count << " signal "
+              << authorization_signal_evaluation_accepts << '/'
+              << authorization_evaluation_count << " signal_rank_one "
+              << authorization_signal_evaluation_recall << '/'
+              << authorization_evaluation_count << " negative_noops "
+              << authorization_negative_noops << '/'
+              << authorization_negative_count << '\n';
+
+    std::size_t composition_routes = 0U;
+    std::size_t composition_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& held_out : gate_composition_evaluation_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto routed = memory.hook.applied &&
+                                memory.hook.entity.factor_label == tuple.entity &&
+                                memory.hook.relation.factor_label == tuple.relation;
+            const auto rank = token_rank(memory.logits, tuple.target_token);
+            composition_routes += routed ? 1U : 0U;
+            composition_recall += routed && rank == 1U ? 1U : 0U;
+            std::cout << "gate_composition_evaluation=" << held_out.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " entity_accepted="
+                      << (memory.hook.entity.accepted ? "yes" : "no")
+                      << " relation_accepted="
+                      << (memory.hook.relation.accepted ? "yes" : "no")
+                      << " action_accepted="
+                      << (memory.hook.action_accepted ? "yes" : "no")
+                      << " routed=" << (routed ? "yes" : "no")
+                      << " rank=" << rank << '\n';
+        }
+    }
+    const auto composition_count = tuples.size() * 2U;
+
+    std::size_t composition_wrong_intent_noops = 0U;
+    for (const auto& tuple : tuples) {
+        const auto prompt = gate_composition_negative_prompt(
+            entities[tuple.entity], relations[tuple.relation]);
+        const auto baseline = capture(
+            model.get(), vocab, prompt, hidden_dimension, target_tensor);
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            prompt,
+            make_gate_invariance_hook(true, true),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto delta = maximum_logit_difference(
+            baseline.logits, memory.logits);
+        composition_wrong_intent_noops +=
+            memory.hook.entity.accepted && memory.hook.relation.accepted &&
+                    memory.hook.tuple_found && !memory.hook.action_accepted &&
+                    !memory.hook.applied && delta <= 1.0e-5F
+                ? 1U
+                : 0U;
+    }
+
+    std::size_t composition_missing_noops = 0U;
+    std::size_t composition_missing_count = 0U;
+    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
+                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
+        for (const auto& held_out : gate_composition_evaluation_prompts(
+                 entities[missing.first], relations[missing.second])) {
+            ++composition_missing_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            composition_missing_noops +=
+                memory.hook.entity.accepted && memory.hook.relation.accepted &&
+                        !memory.hook.tuple_found && !memory.hook.applied &&
+                        delta <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t composition_unknown_entity_noops = 0U;
+    std::size_t composition_unknown_entity_count = 0U;
+    for (const auto& unknown : {std::string("Vega"), std::string("Altair")}) {
+        for (const auto& held_out : gate_composition_evaluation_prompts(
+                 unknown, "color")) {
+            ++composition_unknown_entity_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            composition_unknown_entity_noops +=
+                !memory.hook.entity.accepted && !memory.hook.applied &&
+                        delta <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t composition_unknown_relation_noops = 0U;
+    std::size_t composition_unknown_relation_count = 0U;
+    for (const auto& unknown : {std::string("weight"), std::string("origin")}) {
+        for (const auto& held_out : gate_composition_evaluation_prompts(
+                 "Arcturus", unknown)) {
+            ++composition_unknown_relation_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                held_out.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                held_out.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            composition_unknown_relation_noops +=
+                memory.hook.entity.accepted &&
+                        !memory.hook.relation.accepted && !memory.hook.applied &&
+                        delta <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::cout << "gate_composition_evaluation_summary=routes "
+              << composition_routes << '/' << composition_count
+              << " rank_one " << composition_recall << '/' << composition_count
+              << " wrong_intent_noops " << composition_wrong_intent_noops << '/'
+              << tuples.size() << " missing_noops " << composition_missing_noops
+              << '/' << composition_missing_count << " unknown_entity_noops "
+              << composition_unknown_entity_noops << '/'
+              << composition_unknown_entity_count
+              << " unknown_relation_noops "
+              << composition_unknown_relation_noops << '/'
+              << composition_unknown_relation_count << '\n';
+
+    const auto relation_stage_passed =
+        relation_prototype_evaluation_matches == relation_evaluation_count &&
+        relation_prototype_negative_rejections ==
+            relation_prototype_negative_count;
+    const auto authorization_stage_passed =
+        authorization_signal_evaluation_accepts ==
+            authorization_evaluation_count &&
+        authorization_signal_evaluation_recall ==
+            authorization_evaluation_count &&
+        authorization_negative_noops == authorization_negative_count;
+    const auto composition_stage_passed =
+        composition_routes == composition_count &&
+        composition_recall == composition_count &&
+        composition_wrong_intent_noops == tuples.size() &&
+        composition_missing_noops == composition_missing_count &&
+        composition_unknown_entity_noops == composition_unknown_entity_count &&
+        composition_unknown_relation_noops ==
+            composition_unknown_relation_count;
+    if (!relation_stage_passed || !authorization_stage_passed ||
+        !composition_stage_passed) {
+        throw std::runtime_error(
+            "gate-local authorization invariance failed a frozen criterion");
     }
 
     std::cout << "stored_tuples=" << tuples.size()

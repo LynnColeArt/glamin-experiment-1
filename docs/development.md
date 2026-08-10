@@ -140,9 +140,13 @@ at `l_out-35`. On its new frozen split it produced rank-one targets for all
 then compared variance and association-signal projections on 18 new prompts.
 Association signal identified 18/18 entities and rejected 6/6 unknown-entity
 controls exactly, but unchanged relation and action gates limited end-to-end
-routing and rank-one recall to 9/18. The next boundary is form-stable relation
-and action authorization, followed by persistence of the complete factorized
-contract, batched scanning, and a substantially larger negative set.
+routing and rank-one recall to 9/18. A gate-local follow-up then established
+form-stable centroid relation addressing at 12/12 positives and 4/4 unknown
+relations. Its authorization signal reached 11/12 positives but rejected only
+5/12 new wrong intents; composition reached 9/12 and failed. The next boundary
+is a more explicit retrieval-intent decision, followed by persistence of the
+complete factorized contract, batched scanning, and a substantially larger
+negative set.
 
 Run the factorized frozen-model probe with:
 

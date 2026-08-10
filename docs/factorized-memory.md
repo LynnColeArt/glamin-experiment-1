@@ -296,11 +296,13 @@ remain unmeasured.
 
 ## Next Experiment
 
-The entity-address invariance probe described in
-[Entity-Address Invariance](entity-address-invariance.md) reached 18/18 correct
-entity matches and 6/6 unknown-entity abstentions, but only 9/18 end-to-end
-routes. Its failed prompts must remain frozen. A new split should hold the
-association-signal entity projection and later target action fixed while
-testing form-stable relation and action-context representations. Once complete
-authorization generalizes independently, the two-stage factorized contract
-should be persisted and live-swapped as one generation.
+The subsequent [Gate-Local Authorization Invariance](gate-local-authorization-invariance.md)
+probe held association-signal entity addressing and later target action fixed.
+Its centroid relation representation passed 12/12 positives and 4/4 unknown
+relations. Authorization signal reached 11/12 positives but preserved exact
+no-op behavior on only 5/12 new wrong intents; composition reached 9/12 and
+failed. The next split should retain the successful entity and relation
+representations while separating tuple compatibility from retrieval intent and
+substantially expanding negative intent families. The complete contract should
+be persisted and live-swapped only after that authority boundary is measured
+independently.
