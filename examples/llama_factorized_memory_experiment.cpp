@@ -4383,8 +4383,8 @@ int run(const std::string& model_path) {
     std::vector<UnknownEntityProbeSpec> conditioned_unknown_probes;
     std::vector<std::pair<std::size_t, std::vector<float>>>
         conditioned_unknown_selections;
-    for (const auto& unknown : {std::string("Altair"), std::string("Mizar"),
-                                std::string("Rigel"), std::string("Spica")}) {
+    for (const auto& unknown : {std::string("Canopus"), std::string("Achernar"),
+                                std::string("Hadar"), std::string("Acrux")}) {
         for (const auto& relation : relations) {
             for (const auto& prompt : conditioned_knownness_development_prompts(
                      unknown, relation)) {
@@ -4438,7 +4438,7 @@ int run(const std::string& model_path) {
         -> std::pair<gx1::ActivationMemoryBuildResult,
                      std::vector<gx1::LabelConditionedGateEntry>> {
         build_stage("label-conditioned-knownness");
-        for (const auto width : {32U, 64U, 128U, 256U, 512U}) {
+        for (const auto width : {32U}) {
             try {
                 auto memory = gx1::ActivationMemoryBuilder::build(
                     conditioned_construction,
