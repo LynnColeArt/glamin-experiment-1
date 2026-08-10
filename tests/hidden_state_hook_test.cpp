@@ -433,7 +433,7 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
         gx1::FactorSearchConfig{
             2,
             1,
-            {1.0F, 0.0F},
+            {1.0F, 1.0F},
             gx1::ProjectionNormalization::none,
             0.1F,
         },

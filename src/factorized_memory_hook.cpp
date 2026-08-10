@@ -213,9 +213,13 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     }
     if (action_config_) {
         validate_projection_config(*action_config_);
-        if (action_config_->hidden_dimension != entity_config_.hidden_dimension) {
+        const auto expected_action_hidden = scan_action_candidates_
+                                                ? entity_config_.query_dimension +
+                                                      relation_config_.query_dimension
+                                                : entity_config_.hidden_dimension;
+        if (action_config_->hidden_dimension != expected_action_hidden) {
             throw std::invalid_argument(
-                "action projection uses a different hidden dimension");
+                "action projection uses the wrong compatibility dimension");
         }
     }
     if (intent_config_) {
@@ -308,25 +312,22 @@ FactorizedLayerMemoryHook::authorize_selection(
             result.relation.factor_label,
             action_config_ ? project(*action_config_, state) : state);
     };
-    auto action = select_action(action_state);
+    TupleResidualMatch action;
     if (scan_action_candidates_) {
         if (result.entity.address_candidate >= entity_states.size() ||
             result.relation.address_candidate >= relation_states.size()) {
             throw std::runtime_error(
                 "factor evidence selected an unavailable compatibility state");
         }
-        auto combined_state =
-            entity_states[result.entity.address_candidate];
-        const auto& relation_state =
-            relation_states[result.relation.address_candidate];
-        if (combined_state.size() != relation_state.size()) {
-            throw std::runtime_error(
-                "factor compatibility states have different dimensions");
-        }
-        for (std::size_t index = 0; index < combined_state.size(); ++index) {
-            combined_state[index] += relation_state[index];
-        }
+        auto combined_state = project(
+            entity_config_, entity_states[result.entity.address_candidate]);
+        const auto relation_query = project(
+            relation_config_, relation_states[result.relation.address_candidate]);
+        combined_state.insert(
+            combined_state.end(), relation_query.begin(), relation_query.end());
         action = select_action(combined_state);
+    } else {
+        action = select_action(action_state);
     }
     if (action.residual == nullptr) {
         return {std::move(result), std::move(action)};

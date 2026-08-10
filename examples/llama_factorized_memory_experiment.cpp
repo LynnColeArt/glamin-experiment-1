@@ -598,16 +598,15 @@ std::vector<float> combined_factor_state_for_probe(
     const std::size_t relation,
     const gx1::ActivationMemoryBuildResult& entity_memory,
     const gx1::ActivationMemoryBuildResult& relation_memory) {
-    auto combined = nearest_factor_state_for_probe(
+    const auto entity_state = nearest_factor_state_for_probe(
         inference.token_states, entity, entity_memory);
     const auto relation_state = nearest_factor_state_for_probe(
         inference.token_states, relation, relation_memory);
-    if (combined.size() != relation_state.size()) {
-        throw std::runtime_error("factor probe states have different widths");
-    }
-    for (std::size_t index = 0; index < combined.size(); ++index) {
-        combined[index] += relation_state[index];
-    }
+    auto combined = project_normalized_for_probe(entity_state, entity_memory);
+    const auto relation_query = project_normalized_for_probe(
+        relation_state, relation_memory);
+    combined.insert(
+        combined.end(), relation_query.begin(), relation_query.end());
     return combined;
 }
 
