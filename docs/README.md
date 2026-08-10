@@ -39,8 +39,8 @@
   records a materially different verifier whose development passed but whose
   protocol stopped before regression on an Altair corpus-provenance collision.
 - [Corpus-disjoint conditioned knownness](corpus-disjoint-conditioned-knownness.md)
-  preregisters the clean replication with four repository-audited development
-  unknowns and the predecessor's exposed width fixed in advance.
+  records a clean replication whose fixed width passed development with four
+  repository-audited unknowns and is sealed for one-shot regression.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -99,4 +99,5 @@ its own positive and matched-negative prototypes under a shared projection. It
 passed development, then stopped before candidate regression when provenance
 review found that development had reused the frozen unknown label Altair.
 The clean follow-up freezes width 32 and substitutes four labels absent from all
-earlier corpora before rebuilding any prototype or running the model.
+earlier corpora. Its development preflight passed every criterion; candidate
+regression and new frozen evaluation remain unrun.

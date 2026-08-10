@@ -3,7 +3,9 @@
 ## Status
 
 Protocol frozen on 2026-08-10 before implementation and before any candidate
-regression or new frozen prompt is evaluated. At base commit `53a1bad`, a
+regression or new frozen prompt was evaluated. Development passed at the fixed
+width. The candidate is now sealed pending its one-shot prior-frozen regression.
+At base commit `53a1bad`, a
 repository-wide provenance search found no occurrence of the development
 unknown labels `Canopus`, `Achernar`, `Hadar`, or `Acrux` outside this protocol.
 No model prompt containing those labels has been evaluated in this project.
@@ -71,6 +73,23 @@ also reproduce their complete prior development results.
 Implementation defects may be repaired using only this development set.
 Prompts, substitutions, counts, width, mechanism, artifact inputs, and criteria
 may not change after this commit. Failure stops before regression.
+
+## Development Result
+
+The fixed width-32 configuration passed the complete clean preflight: 32/32
+correct association proposals, 32/32 matching-label acceptances, 96/96
+nonmatching-label rejections, 32/32 clean-unknown rejections, and 32/32 unknown
+end-to-end exact no-ops. Calibration produced:
+
+| Label | Radius | Margin | Hardest positive gap | Strongest negative gap |
+| --- | ---: | ---: | ---: | ---: |
+| Arcturus | `0.654063` | `1.04839` | `2.02273` | `0.0740434` |
+| Bellatrix | `0.484612` | `0.754625` | `0.998179` | `0.511071` |
+| Cygnus | `0.636825` | `0.839783` | `2.04438` | `-0.364815` |
+| Draco | `0.544305` | `0.986859` | `1.67582` | `0.2979` |
+
+No candidate prior-frozen or new frozen prompt has run. The configuration is
+sealed at implementation commit `8a059df` before that boundary.
 
 ## Prior-Frozen Regression Gate
 

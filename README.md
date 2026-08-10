@@ -38,13 +38,12 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-The latest label-conditioned probe passed its complete development preflight at
-the first width: 32/32 matching-label acceptances, 96/96 nonmatching-label
-rejections, and 32/32 unknown exact no-ops. It stopped before regression when a
-provenance audit found that `Altair` was both a development unknown and an older
-frozen unknown-entity control. That makes the planned regression non-independent.
-No candidate regression or new frozen prompt was evaluated; the next clean
-replication must use corpus-disjoint development labels.
+The clean label-conditioned replication has now passed its fixed-width
+development preflight: 32/32 correct entity proposals and matching accepts,
+96/96 nonmatching-label rejections, and 32/32 corpus-disjoint unknown exact
+no-ops. Its four development unknown labels were absent from all earlier
+corpora. The configuration is sealed for its one-shot prior-frozen regression;
+no candidate regression or new frozen prompt has yet been evaluated.
 
 ## Research questions
 
@@ -186,6 +185,7 @@ measurable. Model files are not included in this repository.
 | Conjunctive retrieval authorization | Local compatibility and intent each accepted 12/12 positives; composition produced 11/12 rank-one targets | Compatibility rejected 60/60 wrong tuples; intent made 36/36 local negatives and 17/18 composition negatives exact no-ops; 30/30 prior wrong intents remained no-ops | Both local gates passed; composition failed on one positive, one counterfactual, and one unknown-entity factor decision |
 | Composition-stability replication | Development passed all knownness, compatibility, and intent criteria; prior-frozen composition produced 11/12 rank-one targets | Repaired the prior counterfactual to 18/18 no-ops and unknown entities to 4/4; preserved 36/36 local and 30/30 older negative no-ops | Stopped at regression because knownness rejected one registered Bellatrix form; new frozen sets were never evaluated |
 | Label-conditioned entity knownness | First width passed 32/32 matches, 96/96 cross-label rejections, and 32/32 unknown exact no-ops | Candidate regression and every new frozen prompt remained unrun | Stopped on protocol provenance: development reused the prior frozen unknown label Altair |
+| Corpus-disjoint conditioned knownness | Fixed width 32 passed 32/32 matching accepts, 96/96 cross-label rejects, and 32/32 clean-unknown exact no-ops | Candidate regression and every new frozen prompt remain unrun | Development passed; configuration sealed for the one-shot prior regression |
 
 ### Topology-aware action probe
 
