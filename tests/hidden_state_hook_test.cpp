@@ -521,6 +521,83 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
            "contrastive intent margin did not veto an ambiguous query");
 }
 
+void test_label_conditioned_entity_gate_confirms_selected_identity() {
+    gx1::GlaminRuntime runtime(1);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "conditioned-entities", 1, {1.0F, 2.0F});
+    const auto relation_generation = generations.mount_flat(
+        "conditioned-relations", 1, {1.0F});
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    const gx1::FactorSearchConfig factor_config{
+        2,
+        1,
+        {1.0F, 0.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    payloads->insert(10U, 20U, {1.0F, 0.0F});
+    payloads->insert(11U, 20U, {0.0F, 1.0F});
+    gx1::FactorizedLayerMemoryHook hook(
+        std::move(entity_pin),
+        factor_config,
+        {10U, 11U},
+        std::move(relation_pin),
+        factor_config,
+        {20U},
+        1.0F,
+        payloads,
+        std::numeric_limits<float>::max(),
+        std::nullopt,
+        std::nullopt,
+        false,
+        std::nullopt,
+        gx1::LabelConditionedGateConfig{
+            gx1::FactorSearchConfig{
+                2,
+                1,
+                {0.0F, 1.0F},
+                gx1::ProjectionNormalization::none,
+                std::numeric_limits<float>::max(),
+            },
+            {
+                {10U, {0.0F}, {10.0F}, 1.0F, 1.0F},
+                {11U, {10.0F}, {0.0F}, 1.0F, 1.0F},
+            },
+        });
+
+    const auto accepted = hook.authorize_nearest(
+        {{1.0F, 0.0F}}, {{1.0F, 0.0F}}, {1.0F, 1.0F});
+    expect(accepted.entity.factor_label == 10U &&
+               accepted.known_entity_accepted &&
+               accepted.known_entity_identity_consistent &&
+               accepted.known_entity_verifier_label == 10U &&
+               accepted.nearest_known_entity_label == 10U &&
+               accepted.known_entity_distance == 0.0F &&
+               accepted.unknown_entity_distance == 100.0F,
+           "label-conditioned entity gate rejected matching evidence");
+
+    const auto inconsistent = hook.authorize_nearest(
+        {{1.0F, 10.0F}}, {{1.0F, 0.0F}}, {1.0F, 1.0F});
+    expect(inconsistent.entity.factor_label == 10U &&
+               !inconsistent.known_entity_accepted &&
+               !inconsistent.known_entity_identity_consistent &&
+               inconsistent.known_entity_verifier_label == 10U &&
+               inconsistent.nearest_known_entity_label == 11U &&
+               !inconsistent.tuple_found,
+           "label-conditioned entity gate did not veto inconsistent identity");
+
+    const auto distant = hook.authorize_nearest(
+        {{1.0F, 5.0F}}, {{1.0F, 0.0F}}, {1.0F, 1.0F});
+    expect(!distant.known_entity_accepted && !distant.tuple_found,
+           "label-conditioned entity radius admitted unknown evidence");
+}
+
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(
         gx1::sha256_text("abc") ==
@@ -641,6 +718,7 @@ int main() {
         test_prefix_mean_address_candidates();
         test_factorized_tuple_join_and_abstention();
         test_factorized_authorization_conjoins_compatibility_and_intent();
+        test_label_conditioned_entity_gate_confirms_selected_identity();
         test_persistent_hook_artifact_atomic_activation_and_corruption();
         std::cout << "hidden-state Glamin hook tests passed\n";
         return EXIT_SUCCESS;
