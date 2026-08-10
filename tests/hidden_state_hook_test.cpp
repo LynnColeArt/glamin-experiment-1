@@ -419,7 +419,7 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
         0.1F,
     };
     auto payloads = std::make_shared<gx1::TupleResidualLedger>();
-    payloads->insert_variant(10U, 20U, {3.0F}, {1.0F, -1.0F});
+    payloads->insert_variant(10U, 20U, {2.0F}, {1.0F, -1.0F});
     gx1::FactorizedLayerMemoryHook hook(
         std::move(entity_pin),
         factor_config,
@@ -450,11 +450,9 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
         true);
 
     const std::vector<std::vector<float>> factors{{1.0F, 0.0F}};
-    const std::vector<std::vector<float>> scannable_factors{
-        {1.0F, 0.0F}, {3.0F, 0.0F}};
     const auto accepted = hook.authorize_nearest(
-        scannable_factors,
-        scannable_factors,
+        factors,
+        factors,
         std::vector<float>{9.0F, 4.0F});
     expect(accepted.tuple_found && accepted.compatibility_accepted &&
                accepted.intent_accepted && accepted.action_accepted,
@@ -464,8 +462,8 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
            "conjunctive authorization recorded the wrong distances");
 
     const auto denied = hook.authorize_nearest(
-        scannable_factors,
-        scannable_factors,
+        factors,
+        factors,
         std::vector<float>{9.0F, 9.0F});
     expect(denied.tuple_found && denied.compatibility_accepted &&
                !denied.intent_accepted && !denied.action_accepted,
@@ -474,8 +472,11 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
                denied.intent_distance == 25.0F,
            "intent veto did not retain independent diagnostics");
 
+    const std::vector<std::vector<float>> incompatible_factors{{1.2F, 0.0F}};
     const auto incompatible = hook.authorize_nearest(
-        factors, factors, std::vector<float>{9.0F, 4.0F});
+        incompatible_factors,
+        incompatible_factors,
+        std::vector<float>{9.0F, 4.0F});
     expect(incompatible.tuple_found &&
                !incompatible.compatibility_accepted &&
                incompatible.intent_accepted && !incompatible.action_accepted,

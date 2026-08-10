@@ -564,6 +564,53 @@ float minimum_probe_distance(
     return minimum;
 }
 
+std::vector<float> nearest_factor_state_for_probe(
+    const gx1::ActivationStateSequence& states,
+    const std::size_t association,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty() || memory.keys.size() != memory.key_associations.size()) {
+        throw std::invalid_argument("factor probe inputs are incomplete");
+    }
+    auto minimum = std::numeric_limits<float>::max();
+    const std::vector<float>* selected = nullptr;
+    for (const auto& state : states) {
+        const auto query = project_normalized_for_probe(state, memory);
+        for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+            if (memory.key_associations[key] != association) {
+                continue;
+            }
+            const auto distance = probe_squared_distance(query, memory.keys[key]);
+            if (selected == nullptr || distance < minimum) {
+                minimum = distance;
+                selected = &state;
+            }
+        }
+    }
+    if (selected == nullptr) {
+        throw std::invalid_argument("factor probe association has no key");
+    }
+    return *selected;
+}
+
+std::vector<float> combined_factor_state_for_probe(
+    const InferenceResult& inference,
+    const std::size_t entity,
+    const std::size_t relation,
+    const gx1::ActivationMemoryBuildResult& entity_memory,
+    const gx1::ActivationMemoryBuildResult& relation_memory) {
+    auto combined = nearest_factor_state_for_probe(
+        inference.token_states, entity, entity_memory);
+    const auto relation_state = nearest_factor_state_for_probe(
+        inference.token_states, relation, relation_memory);
+    if (combined.size() != relation_state.size()) {
+        throw std::runtime_error("factor probe states have different widths");
+    }
+    for (std::size_t index = 0; index < combined.size(); ++index) {
+        combined[index] += relation_state[index];
+    }
+    return combined;
+}
+
 gx1::ActivationMemoryBuildResult build_factor(
     const std::vector<FactorPrompt>& prompts,
     const std::vector<InferenceResult>& negatives,
@@ -1150,12 +1197,6 @@ int run(const std::string& model_path) {
          ++index) {
         const auto& positive = conjunctive_development_positives[index];
         if (index % 3U < 2U) {
-            compatibility_construction.push_back({
-                positive.tuple,
-                positive.baseline.token_states,
-                positive.baseline.hidden_state,
-                positive.baseline.hidden_state,
-            });
             intent_construction.push_back({
                 0U,
                 {positive.baseline.hidden_state},
@@ -1163,16 +1204,8 @@ int run(const std::string& model_path) {
                 positive.baseline.hidden_state,
             });
         } else {
-            compatibility_validation.push_back({
-                positive.tuple, positive.baseline.token_states});
             intent_validation.push_back({
                 0U, {positive.baseline.hidden_state}});
-        }
-        for (std::size_t candidate = 0; candidate < tuples.size(); ++candidate) {
-            if (candidate != positive.tuple) {
-                compatibility_negatives.push_back({
-                    candidate, positive.baseline.token_states});
-            }
         }
     }
     for (const auto& negative : conjunctive_development_negatives) {
@@ -1233,6 +1266,41 @@ int run(const std::string& model_path) {
             gx1::ActivationProjectionStrategy::authorization_signal,
             gx1::ActivationValidationScope::association,
         });
+    build_stage("entity-address-variance");
+    const auto entity_address_variance_memory = build_factor(
+        entity_prompts,
+        entity_negatives,
+        entity_address_entity_validation,
+        gx1::ActivationProjectionStrategy::variance);
+    build_stage("entity-address-association");
+    const auto entity_address_association_memory = build_factor(
+        entity_prompts,
+        entity_negatives,
+        entity_address_entity_validation,
+        gx1::ActivationProjectionStrategy::association_signal);
+    for (std::size_t index = 0;
+         index < conjunctive_development_positives.size();
+         ++index) {
+        const auto& positive = conjunctive_development_positives[index];
+        auto combined = combined_factor_state_for_probe(
+            positive.baseline,
+            positive.entity,
+            positive.relation,
+            entity_address_association_memory,
+            relation_prototype_memory);
+        if (index % 3U < 2U) {
+            compatibility_construction.push_back({
+                positive.tuple, {combined}, combined, combined});
+        } else {
+            compatibility_validation.push_back({
+                positive.tuple, {combined}});
+        }
+        for (std::size_t candidate = 0; candidate < tuples.size(); ++candidate) {
+            if (candidate != positive.tuple) {
+                compatibility_negatives.push_back({candidate, {combined}});
+            }
+        }
+    }
     build_stage("tuple-compatibility");
     const auto tuple_compatibility_memory = [&]()
         -> gx1::ActivationMemoryBuildResult {
@@ -1291,18 +1359,6 @@ int run(const std::string& model_path) {
         throw std::runtime_error(
             "no retrieval-intent development width separates");
     }();
-    build_stage("entity-address-variance");
-    const auto entity_address_variance_memory = build_factor(
-        entity_prompts,
-        entity_negatives,
-        entity_address_entity_validation,
-        gx1::ActivationProjectionStrategy::variance);
-    build_stage("entity-address-association");
-    const auto entity_address_association_memory = build_factor(
-        entity_prompts,
-        entity_negatives,
-        entity_address_entity_validation,
-        gx1::ActivationProjectionStrategy::association_signal);
     std::cout << "action_radius=" << action_memory.maximum_distance
               << " action_negative=" << action_memory.minimum_negative_distance
               << '\n';
@@ -1966,6 +2022,13 @@ int run(const std::string& model_path) {
     std::size_t conjunctive_development_cross_rejections = 0U;
     std::size_t conjunctive_development_intent_accepts = 0U;
     for (const auto& positive : conjunctive_development_positives) {
+        const gx1::ActivationStateSequence compatibility_states{
+            combined_factor_state_for_probe(
+                positive.baseline,
+                positive.entity,
+                positive.relation,
+                entity_address_association_memory,
+                relation_prototype_memory)};
         for (std::size_t key = 0;
              key < tuple_compatibility_memory.keys.size();
              ++key) {
@@ -1975,7 +2038,7 @@ int run(const std::string& model_path) {
             }
             conjunctive_development_cross_rejections +=
                 minimum_probe_distance(
-                    positive.baseline.token_states,
+                    compatibility_states,
                     tuple_compatibility_memory.keys[key],
                     tuple_compatibility_memory) >
                         tuple_compatibility_memory.maximum_distance
@@ -2786,6 +2849,13 @@ int run(const std::string& model_path) {
                 prompt.second,
                 hidden_dimension,
                 target_tensor);
+            const gx1::ActivationStateSequence compatibility_states{
+                combined_factor_state_for_probe(
+                    baseline,
+                    tuple.entity,
+                    tuple.relation,
+                    entity_address_association_memory,
+                    relation_prototype_memory)};
             for (std::size_t key = 0;
                  key < tuple_compatibility_memory.keys.size();
                  ++key) {
@@ -2795,7 +2865,7 @@ int run(const std::string& model_path) {
                 }
                 frozen_cross_rejections +=
                     minimum_probe_distance(
-                        baseline.token_states,
+                        compatibility_states,
                         tuple_compatibility_memory.keys[key],
                         tuple_compatibility_memory) >
                             tuple_compatibility_memory.maximum_distance

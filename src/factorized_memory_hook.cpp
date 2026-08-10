@@ -310,14 +310,23 @@ FactorizedLayerMemoryHook::authorize_selection(
     };
     auto action = select_action(action_state);
     if (scan_action_candidates_) {
-        for (const auto& state : entity_states) {
-            auto candidate = select_action(state);
-            if (candidate.residual != nullptr &&
-                (action.residual == nullptr ||
-                 candidate.distance < action.distance)) {
-                action = std::move(candidate);
-            }
+        if (result.entity.address_candidate >= entity_states.size() ||
+            result.relation.address_candidate >= relation_states.size()) {
+            throw std::runtime_error(
+                "factor evidence selected an unavailable compatibility state");
         }
+        auto combined_state =
+            entity_states[result.entity.address_candidate];
+        const auto& relation_state =
+            relation_states[result.relation.address_candidate];
+        if (combined_state.size() != relation_state.size()) {
+            throw std::runtime_error(
+                "factor compatibility states have different dimensions");
+        }
+        for (std::size_t index = 0; index < combined_state.size(); ++index) {
+            combined_state[index] += relation_state[index];
+        }
+        action = select_action(combined_state);
     }
     if (action.residual == nullptr) {
         return {std::move(result), std::move(action)};
