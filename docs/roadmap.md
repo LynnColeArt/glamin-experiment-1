@@ -88,6 +88,10 @@ A rollback reproduced the baseline logits exactly in the same process.
     conjunction on new frozen positive, wrong-intent, and regression sets:
     both local gates passed, while composition reached 11/12 positives and
     17/18 new negative no-ops and therefore failed its strict criterion.
+  - [x] Replicate composition stability with a known-entity veto, contrastive
+    intent margin, and prior-frozen regression gate: development passed and the
+    safety regressions were repaired, but one known positive failed knownness,
+    so the experiment stopped before new frozen evaluation.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

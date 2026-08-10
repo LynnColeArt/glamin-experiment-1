@@ -38,15 +38,14 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-The latest probe replaces one broad authorization signal with separate tuple
-compatibility and global retrieval-intent decisions. Both passed their frozen
-local criteria: 12/12 compatibility positives, 60/60 cross-tuple rejections,
-12/12 intent positives, and 36/36 eligible negative no-ops. Their composition
-reached 11/12 rank-one targets and rejected 17/18 new wrong intents, while all
-30 earlier wrong-intent regressions remained no-ops. One counterfactual was
-authorized, one unseen retrieval form was rejected, and one unknown entity
-passed its factor gate, so the all-or-nothing composition criterion failed and
-persistence remains deferred.
+The latest replication adds contrastive intent and entity-knownness decisions.
+Development passed every criterion, and the prior-frozen regression repaired
+the earlier counterfactual (`18/18` composition negative no-ops) and unknown
+entity (`4/4`) failures while preserving all 30 older wrong-intent no-ops. It
+still routed only 11/12 positives: the knownness veto rejected the same compact
+Bellatrix retrieval form. The protocol therefore stopped before evaluating any
+new frozen prompt. This isolates a specificity–recall boundary in global entity
+knownness rather than weakening the safety criteria.
 
 ## Research questions
 
@@ -186,6 +185,7 @@ measurable. Model files are not included in this repository.
 | Entity-address invariance probe | Association signal identified 18/18 entities versus 13/18 for variance; 9/9 authorized target states reached rank one | 6/6 unknown entities, 12/12 wrong intents, and 2/2 missing tuples were exact no-ops | End-to-end criterion failed at 9/18 on unchanged relation and action gates |
 | Gate-local invariance probe | Relation centroid matched 12/12; authorization signal accepted and recalled 11/12; composition recalled 9/12 | Relation rejected 4/4 unknowns; action rejected 5/12 fresh wrong intents; composition preserved 4/4 missing tuples, 3/4 unknown entities, and 4/4 unknown relations | Relation passed independently; authorization and composition failed their frozen criteria |
 | Conjunctive retrieval authorization | Local compatibility and intent each accepted 12/12 positives; composition produced 11/12 rank-one targets | Compatibility rejected 60/60 wrong tuples; intent made 36/36 local negatives and 17/18 composition negatives exact no-ops; 30/30 prior wrong intents remained no-ops | Both local gates passed; composition failed on one positive, one counterfactual, and one unknown-entity factor decision |
+| Composition-stability replication | Development passed all knownness, compatibility, and intent criteria; prior-frozen composition produced 11/12 rank-one targets | Repaired the prior counterfactual to 18/18 no-ops and unknown entities to 4/4; preserved 36/36 local and 30/30 older negative no-ops | Stopped at regression because knownness rejected one registered Bellatrix form; new frozen sets were never evaluated |
 
 ### Topology-aware action probe
 
@@ -301,6 +301,20 @@ earlier wrong-intent regressions remained no-ops. Unknown entities stayed 3/4
 at their factor gate because `ledger/Vega/color` accepted Vega, though later
 gates prevented any state change. The frozen result and development history are
 recorded in [Conjunctive Retrieval Authorization](docs/conjunctive-retrieval-authorization.md).
+
+### Composition-stability replication
+
+The next candidate added a contrastive known-entity veto and a two-prototype
+intent decision. Development strictly separated all declared examples at widths
+64, 128, and 64 respectively for knownness, compatibility, and intent. The
+prior-frozen regression then fixed both earlier safety misses: the Draco/color
+counterfactual abstained and all four unknown-entity controls failed knownness.
+Every local negative and all 30 older wrong intents remained exact no-ops.
+
+The candidate did not advance. `resolve[Bellatrix]{color}` failed the new
+knownness veto, leaving positive composition at 11/12. Under the preregistered
+discipline this stops the experiment before the new frozen corpus. See
+[Composition-Stable Retrieval Authorization](docs/composition-stable-retrieval-authorization.md).
 
 ## Calibration semantics
 
@@ -497,17 +511,19 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
    association-signal entity and centroid relation representations.
 2. Retain the passing local compatibility and intent results as frozen evidence;
    do not tune them against the three observed composition failures.
-3. Preregister a fresh replication that broadens retrieval-form and
-   counterfactual development coverage while independently testing the existing
-   entity factor boundary.
-4. Hold later target-state action and every current wrong-intent,
+3. Retain the stopped composition-stability regression unchanged: contrastive
+   intent fixed the counterfactual, while global knownness rejected one known
+   Bellatrix form.
+4. Preregister a different entity-knownness representation that can verify the
+   selected label without pooling all registered entities into one prototype.
+5. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
-5. Persist entity space, relation space, tuple membership, action variants,
+6. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
-6. Add generation-A/generation-B behavioral baselines and geometry diffs.
-7. Measure larger memories, broader negatives, multi-token recall, and general
+7. Add generation-A/generation-B behavioral baselines and geometry diffs.
+8. Measure larger memories, broader negatives, multi-token recall, and general
    capability retention.
-8. Add durable trace segments and an immutable source ledger before considering
+9. Add durable trace segments and an immutable source ledger before considering
    procedural mini-apps or external capabilities.
 
 ## Citation

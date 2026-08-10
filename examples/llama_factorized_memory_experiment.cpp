@@ -100,6 +100,14 @@ struct ConjunctiveProbeSpec {
     InferenceResult baseline;
 };
 
+struct UnknownEntityProbeSpec {
+    std::string name;
+    std::string entity;
+    std::string relation;
+    std::string prompt;
+    InferenceResult baseline;
+};
+
 void model_log(const ggml_log_level level, const char* text, void*) {
     if (level == GGML_LOG_LEVEL_ERROR) {
         std::fputs(text, stderr);
@@ -498,6 +506,58 @@ conjunctive_composition_negative_prompts(
     };
 }
 
+std::vector<std::pair<std::string, std::string>>
+replication_development_positive_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"read-address",
+         "Read memory at " + entity + "::" + relation + ".\nStored:"},
+        {"fetch-call",
+         "memory.fetch(subject=\"" + entity + "\", field=\"" + relation +
+             "\") =>"},
+        {"saved-value",
+         "Give the saved " + relation + " belonging to " + entity +
+             ".\nValue:"},
+        {"ledger-tuple",
+         "Retrieve from the ledger (" + entity + ", " + relation +
+             ").\nAnswer:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+replication_development_negative_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"plan",
+         "Plan how one would retrieve " + relation + " for " + entity +
+             " without doing it.\nPlan:"},
+        {"conditional",
+         "If " + relation + " for " + entity +
+             " were needed later, describe the request only.\nDescription:"},
+        {"quoted-command",
+         "Quote the command \"fetch " + entity + " " + relation +
+             "\" without executing it.\nQuote:"},
+        {"template",
+         "Draft a blank request template for " + entity + " / " + relation +
+             "; leave the value empty.\nTemplate:"},
+        {"permission",
+         "State whether retrieving " + relation + " for " + entity +
+             " would be allowed, but do not retrieve it.\nDecision:"},
+        {"explanation",
+         "Explain what a " + relation + " lookup for " + entity +
+             " would mean without performing one.\nExplanation:"},
+        {"syntax-rewrite",
+         "Rewrite \"retrieve " + entity + " " + relation +
+             "\" as pseudocode only; do not run it.\nCode:"},
+        {"mention-detection",
+         "Does this sentence mention a possible lookup of " + entity +
+             " and " + relation +
+             "? Do not look it up.\nAnswer:"},
+    };
+}
+
 std::vector<float> project_normalized_for_probe(
     const std::vector<float>& state,
     const gx1::ActivationMemoryBuildResult& memory) {
@@ -601,6 +661,103 @@ std::vector<float> nearest_factor_state_for_probe(
         throw std::invalid_argument("factor probe association has no key");
     }
     return *selected;
+}
+
+std::vector<float> nearest_factor_state_for_probe(
+    const gx1::ActivationStateSequence& states,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty() || memory.keys.empty()) {
+        throw std::invalid_argument("factor probe inputs are incomplete");
+    }
+    auto minimum = std::numeric_limits<float>::max();
+    const std::vector<float>* selected = nullptr;
+    for (const auto& state : states) {
+        const auto query = project_normalized_for_probe(state, memory);
+        for (const auto& key : memory.keys) {
+            const auto distance = probe_squared_distance(query, key);
+            if (selected == nullptr || distance < minimum) {
+                minimum = distance;
+                selected = &state;
+            }
+        }
+    }
+    if (selected == nullptr) {
+        throw std::invalid_argument("factor probe has no selectable state");
+    }
+    return *selected;
+}
+
+std::vector<float> normalized_centroid_for_probe(
+    const std::vector<std::vector<float>>& states,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty()) {
+        throw std::invalid_argument("probe centroid requires states");
+    }
+    std::vector<float> centroid(memory.query_dimension, 0.0F);
+    for (const auto& state : states) {
+        const auto projected = project_normalized_for_probe(state, memory);
+        for (std::size_t index = 0; index < projected.size(); ++index) {
+            centroid[index] += projected[index];
+        }
+    }
+    double norm = 0.0;
+    for (const auto value : centroid) {
+        norm += static_cast<double>(value) * value;
+    }
+    if (!(norm > 0.0) || !std::isfinite(norm)) {
+        throw std::runtime_error("probe centroid produced a zero vector");
+    }
+    const auto inverse_norm = 1.0 / std::sqrt(norm);
+    for (auto& value : centroid) {
+        value = static_cast<float>(static_cast<double>(value) * inverse_norm);
+    }
+    return centroid;
+}
+
+struct ContrastiveCalibration {
+    std::vector<float> negative_prototype;
+    float minimum_margin{0.0F};
+    float minimum_positive_gap{0.0F};
+    float maximum_negative_gap{0.0F};
+};
+
+ContrastiveCalibration calibrate_contrastive_gate(
+    const gx1::ActivationMemoryBuildResult& memory,
+    const std::vector<std::vector<float>>& positives,
+    const std::vector<std::vector<float>>& negatives) {
+    if (memory.keys.size() != 1U || positives.empty() || negatives.empty()) {
+        throw std::invalid_argument(
+            "contrastive calibration requires one positive key and two classes");
+    }
+    ContrastiveCalibration result;
+    result.negative_prototype = normalized_centroid_for_probe(negatives, memory);
+    result.minimum_positive_gap = std::numeric_limits<float>::max();
+    result.maximum_negative_gap = -std::numeric_limits<float>::max();
+    const auto gap = [&](const std::vector<float>& state) {
+        const auto query = project_normalized_for_probe(state, memory);
+        return probe_squared_distance(query, result.negative_prototype) -
+               probe_squared_distance(query, memory.keys.front());
+    };
+    for (const auto& positive : positives) {
+        result.minimum_positive_gap = std::min(
+            result.minimum_positive_gap, gap(positive));
+    }
+    for (const auto& negative : negatives) {
+        result.maximum_negative_gap = std::max(
+            result.maximum_negative_gap, gap(negative));
+    }
+    if (!(result.maximum_negative_gap < result.minimum_positive_gap)) {
+        throw std::runtime_error(
+            "contrastive prototype margins do not strictly separate: "
+            "minimum positive gap " +
+            std::to_string(result.minimum_positive_gap) +
+            ", maximum negative gap " +
+            std::to_string(result.maximum_negative_gap));
+    }
+    result.minimum_margin = result.maximum_negative_gap +
+                            0.5F * (result.minimum_positive_gap -
+                                    result.maximum_negative_gap);
+    return result;
 }
 
 std::vector<float> combined_factor_state_for_probe(
@@ -1559,6 +1716,8 @@ int run(const std::string& model_path) {
             gx1::RetrievalIntentGateConfig{
                 factor_config(retrieval_intent_memory),
                 retrieval_intent_memory.keys.front(),
+                {},
+                0.0F,
             },
             true);
     };
@@ -3254,20 +3413,885 @@ int run(const std::string& model_path) {
               << conjunctive_unknown_relation_count << " regression_noops "
               << conjunctive_regression_noops << '/'
               << conjunctive_regression_count << '\n';
-    const auto conjunctive_composition_passed =
-        conjunctive_composition_routes == conjunctive_composition_count &&
-        conjunctive_composition_recall == conjunctive_composition_count &&
-        conjunctive_composition_negative_noops ==
-            conjunctive_composition_negative_count &&
-        conjunctive_missing_noops == conjunctive_missing_count &&
-        conjunctive_unknown_entity_noops ==
-            conjunctive_unknown_entity_count &&
-        conjunctive_unknown_relation_noops ==
-            conjunctive_unknown_relation_count &&
-        conjunctive_regression_noops == conjunctive_regression_count;
-    if (!conjunctive_composition_passed) {
+    const auto historical_conjunctive_result_reproduced =
+        conjunctive_composition_routes == 11U &&
+        conjunctive_composition_recall == 11U &&
+        conjunctive_composition_negative_noops == 17U &&
+        conjunctive_missing_noops == 4U &&
+        conjunctive_missing_count == 4U &&
+        conjunctive_unknown_entity_noops == 3U &&
+        conjunctive_unknown_entity_count == 4U &&
+        conjunctive_unknown_relation_noops == 4U &&
+        conjunctive_unknown_relation_count == 4U &&
+        conjunctive_regression_noops == 30U &&
+        conjunctive_regression_count == 30U;
+    if (!historical_conjunctive_result_reproduced) {
         throw std::runtime_error(
-            "conjunctive authorization failed a composition criterion");
+            "historical conjunctive authorization result changed");
+    }
+
+    std::vector<ConjunctiveProbeSpec> replication_development_positives;
+    std::vector<ConjunctiveProbeSpec> replication_development_negatives;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        const auto& entity = entities[tuple.entity];
+        const auto& relation = relations[tuple.relation];
+        for (const auto& prompt : replication_development_positive_prompts(
+                 entity, relation)) {
+            replication_development_positives.push_back({
+                tuple_index,
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor),
+            });
+        }
+        for (const auto& prompt : replication_development_negative_prompts(
+                 entity, relation)) {
+            replication_development_negatives.push_back({
+                tuple_index,
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor),
+            });
+        }
+    }
+
+    std::vector<UnknownEntityProbeSpec> replication_development_unknowns;
+    for (const auto& unknown : {std::string("Deneb"), std::string("Polaris")}) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : replication_development_positive_prompts(
+                     unknown, relation)) {
+                replication_development_unknowns.push_back({
+                    prompt.first,
+                    unknown,
+                    relation,
+                    prompt.second,
+                    capture(
+                        model.get(),
+                        vocab,
+                        prompt.second,
+                        hidden_dimension,
+                        target_tensor),
+                });
+            }
+        }
+    }
+
+    std::vector<gx1::ActivationMemoryConstructionView>
+        replication_knownness_construction;
+    std::vector<gx1::ActivationMemoryValidationView>
+        replication_knownness_validation;
+    std::vector<gx1::ActivationMemoryCalibrationView>
+        replication_knownness_negatives;
+    std::vector<std::vector<float>> replication_known_states;
+    std::vector<std::vector<float>> replication_unknown_states;
+    std::vector<gx1::ActivationMemoryConstructionView>
+        replication_compatibility_construction;
+    std::vector<gx1::ActivationMemoryValidationView>
+        replication_compatibility_validation;
+    std::vector<gx1::ActivationMemoryCalibrationView>
+        replication_compatibility_negatives;
+    std::vector<gx1::ActivationMemoryConstructionView>
+        replication_intent_construction;
+    std::vector<gx1::ActivationMemoryValidationView>
+        replication_intent_validation;
+    std::vector<gx1::ActivationMemoryCalibrationView>
+        replication_intent_negatives;
+    std::vector<std::vector<float>> replication_intent_positive_states;
+    std::vector<std::vector<float>> replication_intent_negative_states;
+
+    for (std::size_t index = 0;
+         index < replication_development_positives.size();
+         ++index) {
+        const auto& positive = replication_development_positives[index];
+        const auto known_state = nearest_factor_state_for_probe(
+            positive.baseline.token_states,
+            positive.entity,
+            entity_address_association_memory);
+        replication_known_states.push_back(known_state);
+        auto combined = combined_factor_state_for_probe(
+            positive.baseline,
+            positive.entity,
+            positive.relation,
+            entity_address_association_memory,
+            relation_prototype_memory);
+        const auto is_validation = index % 4U == 3U;
+        if (is_validation) {
+            replication_knownness_validation.push_back({0U, {known_state}});
+            replication_compatibility_validation.push_back({
+                positive.tuple, {combined}});
+        } else {
+            replication_knownness_construction.push_back({
+                0U, {known_state}, known_state, known_state});
+            replication_compatibility_construction.push_back({
+                positive.tuple, {combined}, combined, combined});
+        }
+        replication_intent_construction.push_back({
+            0U,
+            {positive.baseline.hidden_state},
+            positive.baseline.hidden_state,
+            positive.baseline.hidden_state,
+        });
+        replication_intent_validation.push_back({
+            0U, {positive.baseline.hidden_state}});
+        for (std::size_t candidate = 0; candidate < tuples.size(); ++candidate) {
+            if (candidate != positive.tuple) {
+                replication_compatibility_negatives.push_back({
+                    candidate, {combined}});
+            }
+        }
+        replication_intent_positive_states.push_back(
+            positive.baseline.hidden_state);
+    }
+    for (const auto& negative : replication_development_negatives) {
+        replication_intent_negatives.push_back({
+            0U, {negative.baseline.hidden_state}});
+        replication_intent_negative_states.push_back(
+            negative.baseline.hidden_state);
+    }
+    for (const auto& unknown : replication_development_unknowns) {
+        auto state = nearest_factor_state_for_probe(
+            unknown.baseline.token_states,
+            entity_address_association_memory);
+        replication_knownness_negatives.push_back({0U, {state}});
+        replication_unknown_states.push_back(std::move(state));
+    }
+
+    const auto build_contrastive = [&build_stage](
+                                       const char* stage,
+                                       const std::vector<
+                                           gx1::ActivationMemoryConstructionView>&
+                                           construction,
+                                       const std::vector<
+                                           gx1::ActivationMemoryCalibrationView>&
+                                           negatives,
+                                       const std::vector<
+                                           gx1::ActivationMemoryValidationView>&
+                                           validation,
+                                       const std::vector<std::vector<float>>&
+                                           positive_states,
+                                       const std::vector<std::vector<float>>&
+                                           negative_states) {
+        build_stage(stage);
+        for (const auto width : {64U, 128U, 256U, 512U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    construction,
+                    negatives,
+                    validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::authorization_signal,
+                        gx1::ActivationValidationScope::global,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                        false,
+                    });
+                auto maximum_positive_distance = 0.0F;
+                auto minimum_negative_distance =
+                    std::numeric_limits<float>::max();
+                for (const auto& state : positive_states) {
+                    maximum_positive_distance = std::max(
+                        maximum_positive_distance,
+                        probe_squared_distance(
+                            project_normalized_for_probe(state, memory),
+                            memory.keys.front()));
+                }
+                for (const auto& state : negative_states) {
+                    minimum_negative_distance = std::min(
+                        minimum_negative_distance,
+                        probe_squared_distance(
+                            project_normalized_for_probe(state, memory),
+                            memory.keys.front()));
+                }
+                memory.maximum_validation_distance =
+                    maximum_positive_distance;
+                memory.minimum_negative_distance =
+                    minimum_negative_distance;
+                memory.maximum_distance = maximum_positive_distance +
+                                          0.5F * std::max(
+                                                     0.0F,
+                                                     minimum_negative_distance -
+                                                         maximum_positive_distance);
+                auto calibration = calibrate_contrastive_gate(
+                    memory, positive_states, negative_states);
+                const auto accepted = [&](const std::vector<float>& state) {
+                    const auto query = project_normalized_for_probe(state, memory);
+                    const auto positive_distance = probe_squared_distance(
+                        query, memory.keys.front());
+                    const auto negative_distance = probe_squared_distance(
+                        query, calibration.negative_prototype);
+                    return positive_distance <= memory.maximum_distance &&
+                           positive_distance + calibration.minimum_margin <=
+                               negative_distance;
+                };
+                if (!std::all_of(
+                        positive_states.begin(),
+                        positive_states.end(),
+                        accepted) ||
+                    std::any_of(
+                        negative_states.begin(),
+                        negative_states.end(),
+                        accepted)) {
+                    throw std::runtime_error(
+                        "direct contrastive preflight did not separate");
+                }
+                std::cout << "development_width=" << stage << '/' << width
+                          << "/accepted\n";
+                return std::pair<gx1::ActivationMemoryBuildResult,
+                                 ContrastiveCalibration>{
+                    std::move(memory), std::move(calibration)};
+            } catch (const std::exception& error) {
+                std::cout << "development_width=" << stage << '/' << width
+                          << "/rejected reason=" << error.what() << '\n';
+            }
+        }
+        throw std::runtime_error(
+            std::string("no development width separates ") + stage);
+    };
+
+    const auto replication_knownness = build_contrastive(
+        "known-entity",
+        replication_knownness_construction,
+        replication_knownness_negatives,
+        replication_knownness_validation,
+        replication_known_states,
+        replication_unknown_states);
+    build_stage("replication-tuple-compatibility");
+    const auto replication_compatibility_memory = [&]()
+        -> gx1::ActivationMemoryBuildResult {
+        for (const auto width : {64U, 128U, 256U, 512U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    replication_compatibility_construction,
+                    replication_compatibility_negatives,
+                    replication_compatibility_validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::association_signal,
+                        gx1::ActivationValidationScope::global,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                    });
+                auto maximum_eligible_distance = 0.0F;
+                auto minimum_cross_distance =
+                    std::numeric_limits<float>::max();
+                const auto measure_compatibility = [&](
+                                                       const ConjunctiveProbeSpec&
+                                                           probe) {
+                    const gx1::ActivationStateSequence states{
+                        combined_factor_state_for_probe(
+                            probe.baseline,
+                            probe.entity,
+                            probe.relation,
+                            entity_address_association_memory,
+                            relation_prototype_memory)};
+                    for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+                        const auto distance = minimum_probe_distance(
+                            states, memory.keys[key], memory);
+                        if (memory.key_associations[key] == probe.tuple) {
+                            maximum_eligible_distance = std::max(
+                                maximum_eligible_distance, distance);
+                        } else {
+                            minimum_cross_distance = std::min(
+                                minimum_cross_distance, distance);
+                        }
+                    }
+                };
+                for (const auto& positive :
+                     replication_development_positives) {
+                    measure_compatibility(positive);
+                }
+                for (const auto& negative :
+                     replication_development_negatives) {
+                    measure_compatibility(negative);
+                }
+                if (!(maximum_eligible_distance < minimum_cross_distance)) {
+                    throw std::runtime_error(
+                        "eligible and cross-tuple compatibility overlap");
+                }
+                memory.maximum_validation_distance =
+                    maximum_eligible_distance;
+                memory.minimum_negative_distance = minimum_cross_distance;
+                memory.maximum_distance = maximum_eligible_distance +
+                                          0.5F * (minimum_cross_distance -
+                                                  maximum_eligible_distance);
+                std::size_t positive_accepts = 0U;
+                std::size_t cross_rejections = 0U;
+                for (const auto& positive : replication_development_positives) {
+                    const gx1::ActivationStateSequence states{
+                        combined_factor_state_for_probe(
+                            positive.baseline,
+                            positive.entity,
+                            positive.relation,
+                            entity_address_association_memory,
+                            relation_prototype_memory)};
+                    for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+                        const auto distance = minimum_probe_distance(
+                            states, memory.keys[key], memory);
+                        if (memory.key_associations[key] == positive.tuple) {
+                            positive_accepts +=
+                                distance <= memory.maximum_distance ? 1U : 0U;
+                        } else {
+                            cross_rejections +=
+                                distance > memory.maximum_distance ? 1U : 0U;
+                        }
+                    }
+                }
+                if (positive_accepts !=
+                        replication_development_positives.size() ||
+                    cross_rejections !=
+                        replication_development_positives.size() *
+                            (tuples.size() - 1U)) {
+                    throw std::runtime_error(
+                        "direct compatibility preflight did not separate");
+                }
+                std::cout
+                    << "development_width=replication-tuple-compatibility/"
+                    << width << "/accepted\n";
+                return memory;
+            } catch (const std::exception& error) {
+                std::cout
+                    << "development_width=replication-tuple-compatibility/"
+                    << width << "/rejected reason=" << error.what() << '\n';
+            }
+        }
+        throw std::runtime_error(
+            "no replication tuple-compatibility development width separates");
+    }();
+    const auto replication_intent = build_contrastive(
+        "contrastive-intent",
+        replication_intent_construction,
+        replication_intent_negatives,
+        replication_intent_validation,
+        replication_intent_positive_states,
+        replication_intent_negative_states);
+    const auto& replication_knownness_memory = replication_knownness.first;
+    const auto& replication_knownness_calibration = replication_knownness.second;
+    const auto& replication_intent_memory = replication_intent.first;
+    const auto& replication_intent_calibration = replication_intent.second;
+
+    std::cout << "replication_knownness_radius="
+              << replication_knownness_memory.maximum_distance
+              << " knownness_margin="
+              << replication_knownness_calibration.minimum_margin
+              << " knownness_positive_gap="
+              << replication_knownness_calibration.minimum_positive_gap
+              << " knownness_negative_gap="
+              << replication_knownness_calibration.maximum_negative_gap
+              << " replication_compatibility_radius="
+              << replication_compatibility_memory.maximum_distance
+              << " replication_intent_radius="
+              << replication_intent_memory.maximum_distance
+              << " intent_margin="
+              << replication_intent_calibration.minimum_margin
+              << " intent_positive_gap="
+              << replication_intent_calibration.minimum_positive_gap
+              << " intent_negative_gap="
+              << replication_intent_calibration.maximum_negative_gap << '\n';
+
+    auto replication_payloads = std::make_shared<gx1::TupleResidualLedger>();
+    for (std::size_t index = 0;
+         index < replication_compatibility_memory.keys.size();
+         ++index) {
+        const auto tuple_index =
+            replication_compatibility_memory.key_associations[index];
+        replication_payloads->insert_variant(
+            tuples.at(tuple_index).entity,
+            tuples.at(tuple_index).relation,
+            replication_compatibility_memory.keys[index],
+            replication_compatibility_memory.residuals[index]);
+    }
+    const auto make_replication_hook = [&]() {
+        generations.activate(entity_address_association_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(relation_prototype_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(entity_address_association_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(relation_prototype_memory),
+            relation_prototype_labels,
+            1.0F,
+            replication_payloads,
+            replication_compatibility_memory.maximum_distance,
+            factor_config(replication_compatibility_memory),
+            gx1::RetrievalIntentGateConfig{
+                factor_config(replication_intent_memory),
+                replication_intent_memory.keys.front(),
+                replication_intent_calibration.negative_prototype,
+                replication_intent_calibration.minimum_margin,
+            },
+            true,
+            gx1::ContrastiveGateConfig{
+                factor_config(replication_knownness_memory),
+                replication_knownness_memory.keys.front(),
+                replication_knownness_calibration.negative_prototype,
+                replication_knownness_calibration.minimum_margin,
+            });
+    };
+
+    const auto gate_accepts = [](const std::vector<float>& state,
+                                 const gx1::ActivationMemoryBuildResult& memory,
+                                 const ContrastiveCalibration& calibration) {
+        const auto query = project_normalized_for_probe(state, memory);
+        const auto positive_distance = probe_squared_distance(
+            query, memory.keys.front());
+        const auto negative_distance = probe_squared_distance(
+            query, calibration.negative_prototype);
+        return positive_distance <= memory.maximum_distance &&
+               positive_distance + calibration.minimum_margin <=
+                   negative_distance;
+    };
+    const auto replication_known_accepts = static_cast<std::size_t>(
+        std::count_if(
+            replication_known_states.begin(),
+            replication_known_states.end(),
+            [&](const std::vector<float>& state) {
+                return gate_accepts(
+                    state,
+                    replication_knownness_memory,
+                    replication_knownness_calibration);
+            }));
+    const auto replication_unknown_rejections = static_cast<std::size_t>(
+        std::count_if(
+            replication_unknown_states.begin(),
+            replication_unknown_states.end(),
+            [&](const std::vector<float>& state) {
+                return !gate_accepts(
+                    state,
+                    replication_knownness_memory,
+                    replication_knownness_calibration);
+            }));
+    const auto replication_intent_positive_accepts = static_cast<std::size_t>(
+        std::count_if(
+            replication_intent_positive_states.begin(),
+            replication_intent_positive_states.end(),
+            [&](const std::vector<float>& state) {
+                return gate_accepts(
+                    state,
+                    replication_intent_memory,
+                    replication_intent_calibration);
+            }));
+
+    std::size_t replication_negative_noops = 0U;
+    for (const auto& negative : replication_development_negatives) {
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            negative.prompt,
+            make_replication_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto exact_noop = memory.hook.entity.accepted &&
+                                memory.hook.known_entity_accepted &&
+                                memory.hook.relation.accepted &&
+                                memory.hook.tuple_found &&
+                                memory.hook.compatibility_accepted &&
+                                !memory.hook.intent_accepted &&
+                                !memory.hook.applied &&
+                                maximum_logit_difference(
+                                    negative.baseline.logits,
+                                    memory.logits) <= 1.0e-5F;
+        replication_negative_noops += exact_noop ? 1U : 0U;
+        std::cout << "replication_development_negative=" << negative.name << '/'
+                  << entities[negative.entity] << '/'
+                  << relations[negative.relation]
+                  << " known_entity="
+                  << (memory.hook.known_entity_accepted ? "yes" : "no")
+                  << " compatibility="
+                  << (memory.hook.compatibility_accepted ? "yes" : "no")
+                  << " intent="
+                  << (memory.hook.intent_accepted ? "yes" : "no")
+                  << " applied=" << (memory.hook.applied ? "yes" : "no")
+                  << '\n';
+    }
+    std::cout << "replication_development_summary=known "
+              << replication_known_accepts << '/'
+              << replication_known_states.size() << " unknown_rejections "
+              << replication_unknown_rejections << '/'
+              << replication_unknown_states.size() << " compatibility "
+              << replication_development_positives.size() << '/'
+              << replication_development_positives.size()
+              << " cross_rejections "
+              << replication_development_positives.size() *
+                     (tuples.size() - 1U)
+              << '/'
+              << replication_development_positives.size() *
+                     (tuples.size() - 1U)
+              << " intent_positive " << replication_intent_positive_accepts
+              << '/' << replication_intent_positive_states.size()
+              << " negative_noops " << replication_negative_noops << '/'
+              << replication_development_negatives.size() << '\n';
+    if (replication_known_accepts != replication_known_states.size() ||
+        replication_unknown_rejections != replication_unknown_states.size() ||
+        replication_intent_positive_accepts !=
+            replication_intent_positive_states.size() ||
+        replication_negative_noops !=
+            replication_development_negatives.size()) {
+        throw std::runtime_error(
+            "composition-stable replication failed development preflight");
+    }
+
+    std::size_t prior_local_compatibility_accepts = 0U;
+    std::size_t prior_local_cross_rejections = 0U;
+    std::size_t prior_local_intent_accepts = 0U;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        for (const auto& prompt : conjunctive_frozen_positive_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const gx1::ActivationStateSequence compatibility_states{
+                combined_factor_state_for_probe(
+                    baseline,
+                    tuple.entity,
+                    tuple.relation,
+                    entity_address_association_memory,
+                    relation_prototype_memory)};
+            for (std::size_t key = 0;
+                 key < replication_compatibility_memory.keys.size();
+                 ++key) {
+                const auto distance = minimum_probe_distance(
+                    compatibility_states,
+                    replication_compatibility_memory.keys[key],
+                    replication_compatibility_memory);
+                if (replication_compatibility_memory.key_associations[key] ==
+                    tuple_index) {
+                    prior_local_compatibility_accepts +=
+                        distance <=
+                                replication_compatibility_memory.maximum_distance
+                            ? 1U
+                            : 0U;
+                } else {
+                    prior_local_cross_rejections +=
+                        distance >
+                                replication_compatibility_memory.maximum_distance
+                            ? 1U
+                            : 0U;
+                }
+            }
+            prior_local_intent_accepts +=
+                gate_accepts(
+                    baseline.hidden_state,
+                    replication_intent_memory,
+                    replication_intent_calibration)
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t prior_local_negative_noops = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_frozen_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_replication_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    memory.hook.known_entity_accepted &&
+                                    memory.hook.relation.accepted &&
+                                    memory.hook.tuple_found &&
+                                    memory.hook.compatibility_accepted &&
+                                    !memory.hook.intent_accepted &&
+                                    !memory.hook.action_accepted &&
+                                    !memory.hook.applied &&
+                                    maximum_logit_difference(
+                                        baseline.logits,
+                                        memory.logits) <= 1.0e-5F;
+            prior_local_negative_noops += exact_noop ? 1U : 0U;
+        }
+    }
+
+    std::size_t prior_composition_routes = 0U;
+    std::size_t prior_composition_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_composition_positive_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_replication_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto routed = memory.hook.applied &&
+                                memory.hook.known_entity_accepted &&
+                                memory.hook.compatibility_accepted &&
+                                memory.hook.intent_accepted &&
+                                memory.hook.entity.factor_label == tuple.entity &&
+                                memory.hook.relation.factor_label ==
+                                    tuple.relation;
+            const auto rank = token_rank(memory.logits, tuple.target_token);
+            prior_composition_routes += routed ? 1U : 0U;
+            prior_composition_recall += routed && rank == 1U ? 1U : 0U;
+            std::cout << "replication_prior_positive=" << prompt.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " known_entity="
+                      << (memory.hook.known_entity_accepted ? "yes" : "no")
+                      << " compatibility="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " routed=" << (routed ? "yes" : "no")
+                      << " rank=" << rank << '\n';
+        }
+    }
+
+    std::size_t prior_composition_negative_noops = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_composition_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_replication_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    memory.hook.known_entity_accepted &&
+                                    memory.hook.relation.accepted &&
+                                    memory.hook.tuple_found &&
+                                    memory.hook.compatibility_accepted &&
+                                    !memory.hook.intent_accepted &&
+                                    !memory.hook.action_accepted &&
+                                    !memory.hook.applied &&
+                                    maximum_logit_difference(
+                                        baseline.logits,
+                                        memory.logits) <= 1.0e-5F;
+            prior_composition_negative_noops += exact_noop ? 1U : 0U;
+            std::cout << "replication_prior_negative=" << prompt.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " compatibility="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " applied=" << (memory.hook.applied ? "yes" : "no")
+                      << '\n';
+        }
+    }
+
+    std::size_t prior_wrong_intent_noops = 0U;
+    std::size_t prior_wrong_intent_count = 0U;
+    const auto check_prior_wrong_intent = [&](const std::string& prompt,
+                                              const InferenceResult& baseline) {
+        ++prior_wrong_intent_count;
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            prompt,
+            make_replication_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
+        prior_wrong_intent_noops +=
+            !memory.hook.action_accepted && !memory.hook.applied &&
+                    maximum_logit_difference(
+                        baseline.logits, memory.logits) <= 1.0e-5F
+                ? 1U
+                : 0U;
+    };
+    for (const auto& negative : wrong_intents) {
+        check_prior_wrong_intent(negative.prompt, negative.baseline);
+    }
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : authorization_evaluation_negatives(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            check_prior_wrong_intent(prompt.second, baseline);
+        }
+        const auto prompt = gate_composition_negative_prompt(
+            entities[tuple.entity], relations[tuple.relation]);
+        const auto baseline = capture(
+            model.get(), vocab, prompt, hidden_dimension, target_tensor);
+        check_prior_wrong_intent(prompt, baseline);
+    }
+
+    std::size_t prior_missing_noops = 0U;
+    std::size_t prior_missing_count = 0U;
+    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
+                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 entities[missing.first], relations[missing.second])) {
+            ++prior_missing_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(), vocab, prompt.second, make_replication_hook(),
+                target_states, target_tensor, action_tensor);
+            prior_missing_noops +=
+                memory.hook.entity.accepted &&
+                        memory.hook.known_entity_accepted &&
+                        memory.hook.relation.accepted &&
+                        !memory.hook.tuple_found && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t prior_unknown_entity_noops = 0U;
+    std::size_t prior_unknown_entity_count = 0U;
+    for (const auto& unknown : {std::string("Vega"), std::string("Altair")}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 unknown, "color")) {
+            ++prior_unknown_entity_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto selected_state = nearest_factor_state_for_probe(
+                baseline.token_states,
+                entity_address_association_memory);
+            const auto knownness_rejected = !gate_accepts(
+                selected_state,
+                replication_knownness_memory,
+                replication_knownness_calibration);
+            const auto memory = infer_with_target_state_memory(
+                model.get(), vocab, prompt.second, make_replication_hook(),
+                target_states, target_tensor, action_tensor);
+            prior_unknown_entity_noops +=
+                knownness_rejected && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+            std::cout << "replication_prior_unknown_entity=" << prompt.first
+                      << '/' << unknown << "/color"
+                      << " knownness_rejected="
+                      << (knownness_rejected ? "yes" : "no")
+                      << " applied=" << (memory.hook.applied ? "yes" : "no")
+                      << '\n';
+        }
+    }
+
+    std::size_t prior_unknown_relation_noops = 0U;
+    std::size_t prior_unknown_relation_count = 0U;
+    for (const auto& unknown : {std::string("weight"), std::string("origin")}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 "Arcturus", unknown)) {
+            ++prior_unknown_relation_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(), vocab, prompt.second, make_replication_hook(),
+                target_states, target_tensor, action_tensor);
+            prior_unknown_relation_noops +=
+                memory.hook.entity.accepted &&
+                        memory.hook.known_entity_accepted &&
+                        !memory.hook.relation.accepted && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    const auto prior_local_positive_count = tuples.size() * 2U;
+    const auto prior_local_cross_count =
+        prior_local_positive_count * (tuples.size() - 1U);
+    const auto prior_local_negative_count = tuples.size() * 6U;
+    const auto prior_composition_count = tuples.size() * 2U;
+    const auto prior_composition_negative_count = tuples.size() * 3U;
+    std::cout << "replication_prior_frozen_summary=local_compatibility "
+              << prior_local_compatibility_accepts << '/'
+              << prior_local_positive_count << " local_cross_rejections "
+              << prior_local_cross_rejections << '/' << prior_local_cross_count
+              << " local_intent_positive " << prior_local_intent_accepts << '/'
+              << prior_local_positive_count << " local_negative_noops "
+              << prior_local_negative_noops << '/' << prior_local_negative_count
+              << " composition_routes " << prior_composition_routes << '/'
+              << prior_composition_count << " composition_rank_one "
+              << prior_composition_recall << '/' << prior_composition_count
+              << " composition_negative_noops "
+              << prior_composition_negative_noops << '/'
+              << prior_composition_negative_count << " older_negative_noops "
+              << prior_wrong_intent_noops << '/' << prior_wrong_intent_count
+              << " missing_noops " << prior_missing_noops << '/'
+              << prior_missing_count << " unknown_entity_noops "
+              << prior_unknown_entity_noops << '/'
+              << prior_unknown_entity_count << " unknown_relation_noops "
+              << prior_unknown_relation_noops << '/'
+              << prior_unknown_relation_count << '\n';
+    const auto prior_frozen_regression_passed =
+        prior_local_compatibility_accepts == prior_local_positive_count &&
+        prior_local_cross_rejections == prior_local_cross_count &&
+        prior_local_intent_accepts == prior_local_positive_count &&
+        prior_local_negative_noops == prior_local_negative_count &&
+        prior_composition_routes == prior_composition_count &&
+        prior_composition_recall == prior_composition_count &&
+        prior_composition_negative_noops ==
+            prior_composition_negative_count &&
+        prior_wrong_intent_noops == prior_wrong_intent_count &&
+        prior_missing_noops == prior_missing_count &&
+        prior_unknown_entity_noops == prior_unknown_entity_count &&
+        prior_unknown_relation_noops == prior_unknown_relation_count;
+    if (!prior_frozen_regression_passed) {
+        throw std::runtime_error(
+            "composition-stable replication failed prior-frozen regression");
     }
 
     std::cout << "stored_tuples=" << tuples.size()
