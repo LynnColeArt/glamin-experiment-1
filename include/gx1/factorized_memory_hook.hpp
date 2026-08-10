@@ -21,6 +21,11 @@ struct FactorSearchConfig {
     float maximum_distance{std::numeric_limits<float>::max()};
 };
 
+struct RetrievalIntentGateConfig {
+    FactorSearchConfig search;
+    std::vector<float> prototype;
+};
+
 struct FactorEvidence {
     GlaminGenerationId generation{0};
     std::uint64_t memory_label{0};
@@ -35,8 +40,12 @@ struct FactorizedMemoryResult {
     FactorEvidence relation;
     float gate{0.0F};
     float action_distance{0.0F};
+    float compatibility_distance{0.0F};
+    float intent_distance{0.0F};
     std::size_t action_variant{0};
     bool tuple_found{false};
+    bool compatibility_accepted{false};
+    bool intent_accepted{false};
     bool action_accepted{false};
     bool applied{false};
 };
@@ -103,7 +112,9 @@ public:
         float gate,
         std::shared_ptr<const TupleResidualLedger> payloads,
         float maximum_action_distance = std::numeric_limits<float>::max(),
-        std::optional<FactorSearchConfig> action_config = std::nullopt);
+        std::optional<FactorSearchConfig> action_config = std::nullopt,
+        std::optional<RetrievalIntentGateConfig> intent_config = std::nullopt,
+        bool scan_action_candidates = false);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -154,6 +165,8 @@ private:
     std::shared_ptr<const TupleResidualLedger> payloads_;
     float maximum_action_distance_{std::numeric_limits<float>::max()};
     std::optional<FactorSearchConfig> action_config_;
+    std::optional<RetrievalIntentGateConfig> intent_config_;
+    bool scan_action_candidates_{false};
 };
 
 } // namespace gx1

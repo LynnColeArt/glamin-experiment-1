@@ -399,6 +399,90 @@ void test_factorized_tuple_join_and_abstention() {
            "tuple target-state ledger accepted a duplicate tuple");
 }
 
+void test_factorized_authorization_conjoins_compatibility_and_intent() {
+    gx1::GlaminRuntime runtime(1);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "conjunctive-entities", 1, {1.0F});
+    const auto relation_generation = generations.mount_flat(
+        "conjunctive-relations", 1, {1.0F});
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    const gx1::FactorSearchConfig factor_config{
+        2,
+        1,
+        {1.0F, 0.0F},
+        gx1::ProjectionNormalization::none,
+        0.1F,
+    };
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    payloads->insert_variant(10U, 20U, {2.0F}, {1.0F, -1.0F});
+    gx1::FactorizedLayerMemoryHook hook(
+        std::move(entity_pin),
+        factor_config,
+        {10U},
+        std::move(relation_pin),
+        factor_config,
+        {20U},
+        1.0F,
+        payloads,
+        0.1F,
+        gx1::FactorSearchConfig{
+            2,
+            1,
+            {1.0F, 1.0F},
+            gx1::ProjectionNormalization::none,
+            0.1F,
+        },
+        gx1::RetrievalIntentGateConfig{
+            gx1::FactorSearchConfig{
+                2,
+                1,
+                {0.0F, 1.0F},
+                gx1::ProjectionNormalization::none,
+                0.1F,
+            },
+            {4.0F},
+        },
+        true);
+
+    const std::vector<std::vector<float>> factors{{1.0F, 0.0F}};
+    const auto accepted = hook.authorize_nearest(
+        factors,
+        factors,
+        std::vector<float>{9.0F, 4.0F});
+    expect(accepted.tuple_found && accepted.compatibility_accepted &&
+               accepted.intent_accepted && accepted.action_accepted,
+           "conjunctive authorization rejected a compatible retrieval");
+    expect(accepted.compatibility_distance == 0.0F &&
+               accepted.intent_distance == 0.0F,
+           "conjunctive authorization recorded the wrong distances");
+
+    const auto denied = hook.authorize_nearest(
+        factors,
+        factors,
+        std::vector<float>{9.0F, 9.0F});
+    expect(denied.tuple_found && denied.compatibility_accepted &&
+               !denied.intent_accepted && !denied.action_accepted,
+           "retrieval-intent rejection did not veto compatibility");
+    expect(denied.compatibility_distance == 0.0F &&
+               denied.intent_distance == 25.0F,
+           "intent veto did not retain independent diagnostics");
+
+    const std::vector<std::vector<float>> incompatible_factors{{1.2F, 0.0F}};
+    const auto incompatible = hook.authorize_nearest(
+        incompatible_factors,
+        incompatible_factors,
+        std::vector<float>{9.0F, 4.0F});
+    expect(incompatible.tuple_found &&
+               !incompatible.compatibility_accepted &&
+               incompatible.intent_accepted && !incompatible.action_accepted,
+           "tuple compatibility rejection hid the independent intent result");
+}
+
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(
         gx1::sha256_text("abc") ==
@@ -518,6 +602,7 @@ int main() {
         test_automatic_nearest_address_candidate();
         test_prefix_mean_address_candidates();
         test_factorized_tuple_join_and_abstention();
+        test_factorized_authorization_conjoins_compatibility_and_intent();
         test_persistent_hook_artifact_atomic_activation_and_corruption();
         std::cout << "hidden-state Glamin hook tests passed\n";
         return EXIT_SUCCESS;

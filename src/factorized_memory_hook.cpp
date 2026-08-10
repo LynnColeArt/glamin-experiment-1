@@ -39,6 +39,26 @@ void validate_projection_config(const FactorSearchConfig& config) {
     }
 }
 
+float squared_distance(
+    const std::vector<float>& left,
+    const std::vector<float>& right) {
+    if (left.size() != right.size()) {
+        throw std::invalid_argument(
+            "retrieval-intent vectors have different dimensions");
+    }
+    double distance = 0.0;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto difference = static_cast<double>(left[index]) -
+                                static_cast<double>(right[index]);
+        distance += difference * difference;
+    }
+    const auto narrowed = static_cast<float>(distance);
+    if (!std::isfinite(narrowed)) {
+        throw std::runtime_error("retrieval-intent distance is non-finite");
+    }
+    return narrowed;
+}
+
 void validate_config(
     const GlaminGenerationPin& pin,
     const FactorSearchConfig& config,
@@ -171,7 +191,9 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     const float gate,
     std::shared_ptr<const TupleResidualLedger> payloads,
     const float maximum_action_distance,
-    std::optional<FactorSearchConfig> action_config)
+    std::optional<FactorSearchConfig> action_config,
+    std::optional<RetrievalIntentGateConfig> intent_config,
+    const bool scan_action_candidates)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -181,7 +203,9 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       gate_(gate),
       payloads_(std::move(payloads)),
       maximum_action_distance_(maximum_action_distance),
-      action_config_(std::move(action_config)) {
+      action_config_(std::move(action_config)),
+      intent_config_(std::move(intent_config)),
+      scan_action_candidates_(scan_action_candidates) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
@@ -189,9 +213,24 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     }
     if (action_config_) {
         validate_projection_config(*action_config_);
-        if (action_config_->hidden_dimension != entity_config_.hidden_dimension) {
+        const auto expected_action_hidden = scan_action_candidates_
+                                                ? entity_config_.query_dimension +
+                                                      relation_config_.query_dimension
+                                                : entity_config_.hidden_dimension;
+        if (action_config_->hidden_dimension != expected_action_hidden) {
             throw std::invalid_argument(
-                "action projection uses a different hidden dimension");
+                "action projection uses the wrong compatibility dimension");
+        }
+    }
+    if (intent_config_) {
+        validate_projection_config(intent_config_->search);
+        if (intent_config_->search.hidden_dimension !=
+                entity_config_.hidden_dimension ||
+            intent_config_->prototype.size() !=
+                intent_config_->search.query_dimension ||
+            !all_finite(intent_config_->prototype)) {
+            throw std::invalid_argument(
+                "retrieval-intent gate does not match the hidden-state contract");
         }
     }
     if (!std::isfinite(gate_) || !payloads_ ||
@@ -267,22 +306,49 @@ FactorizedLayerMemoryHook::authorize_selection(
         return {std::move(result), {}};
     }
 
-    const auto action_query = action_config_
-                                  ? project(*action_config_, action_state)
-                                  : action_state;
-    auto action = payloads_->select(
-        result.entity.factor_label,
-        result.relation.factor_label,
-        action_query);
+    const auto select_action = [&](const std::vector<float>& state) {
+        return payloads_->select(
+            result.entity.factor_label,
+            result.relation.factor_label,
+            action_config_ ? project(*action_config_, state) : state);
+    };
+    TupleResidualMatch action;
+    if (scan_action_candidates_) {
+        if (result.entity.address_candidate >= entity_states.size() ||
+            result.relation.address_candidate >= relation_states.size()) {
+            throw std::runtime_error(
+                "factor evidence selected an unavailable compatibility state");
+        }
+        auto combined_state = project(
+            entity_config_, entity_states[result.entity.address_candidate]);
+        const auto relation_query = project(
+            relation_config_, relation_states[result.relation.address_candidate]);
+        combined_state.insert(
+            combined_state.end(), relation_query.begin(), relation_query.end());
+        action = select_action(combined_state);
+    } else {
+        action = select_action(action_state);
+    }
     if (action.residual == nullptr) {
         return {std::move(result), std::move(action)};
     }
     result.tuple_found = true;
     result.action_distance = action.distance;
+    result.compatibility_distance = action.distance;
     result.action_variant = action.variant;
-    if (action.distance <= maximum_action_distance_) {
-        result.action_accepted = true;
+    result.compatibility_accepted =
+        action.distance <= maximum_action_distance_;
+    if (intent_config_) {
+        const auto intent_query = project(intent_config_->search, action_state);
+        result.intent_distance = squared_distance(
+            intent_query, intent_config_->prototype);
+        result.intent_accepted =
+            result.intent_distance <= intent_config_->search.maximum_distance;
+    } else {
+        result.intent_accepted = true;
     }
+    result.action_accepted =
+        result.compatibility_accepted && result.intent_accepted;
     return {std::move(result), std::move(action)};
 }
 

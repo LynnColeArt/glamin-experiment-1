@@ -90,6 +90,16 @@ struct EntityAddressProbeSpec {
     InferenceResult baseline;
 };
 
+struct ConjunctiveProbeSpec {
+    std::size_t tuple{0};
+    std::size_t entity{0};
+    std::size_t relation{0};
+    std::string name;
+    std::string prompt;
+    llama_token target_token{LLAMA_TOKEN_NULL};
+    InferenceResult baseline;
+};
+
 void model_log(const ggml_log_level level, const char* text, void*) {
     if (level == GGML_LOG_LEVEL_ERROR) {
         std::fputs(text, stderr);
@@ -373,6 +383,242 @@ std::string gate_composition_negative_prompt(
     const std::string& relation) {
     return "Inspect the ledger labels " + entity + " and " + relation +
            " for formatting only; no stored-value lookup is authorized.";
+}
+
+std::vector<std::pair<std::string, std::string>>
+conjunctive_development_positive_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"return",
+         "Return the stored " + relation + " value for " + entity +
+             ".\nAnswer:"},
+        {"lookup",
+         "lookup(subject=" + entity + ", property=" + relation + ") =>"},
+        {"assigned",
+         "From memory, what " + relation + " is assigned to " + entity +
+             "?\nValue:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+conjunctive_development_negative_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"denial",
+         "Do not retrieve " + relation + " for " + entity +
+             ". Acknowledge the request type only:"},
+        {"label-summary",
+         "Summarize the labels " + entity + " and " + relation +
+             " without giving the stored value.\nSummary:"},
+        {"formatting",
+         "Rewrite \"" + entity + " / " + relation +
+             "\" as JSON keys only; do not look up the value.\nJSON:"},
+        {"spelling",
+         "Spell " + entity + " and " + relation +
+             ", but do not retrieve memory.\nSpelling:"},
+        {"comparison",
+         "Which label is longer: " + entity + " or " + relation +
+             "? Do not return the stored value.\nAnswer:"},
+        {"metadata",
+         "Does this request mention both an entity and a relation: " + entity +
+             " / " + relation + "? Do not retrieve.\nAnswer:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+conjunctive_frozen_positive_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"consult",
+         "Consult memory and supply " + relation + " for " + entity +
+             ".\nStored value:"},
+        {"fact-read",
+         "fact.read(entity=\"" + entity + "\", field=\"" + relation +
+             "\") ->"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+conjunctive_frozen_negative_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"classification",
+         "Classify \"" + entity + " / " + relation +
+             "\" as two labels; do not fetch their stored value.\nClass:"},
+        {"quotation",
+         "Quote the text \"" + entity + " / " + relation +
+             "\" exactly. Memory retrieval is forbidden.\nQuote:"},
+        {"case-conversion",
+         "Convert " + entity + " and " + relation +
+             " to lowercase without resolving the tuple.\nLowercase:"},
+        {"counting",
+         "Count the words in \"" + entity + " " + relation +
+             "\"; do not return any stored value.\nCount:"},
+        {"ordering",
+         "Alphabetize the labels " + entity + " and " + relation +
+             " only. Do not query memory.\nOrder:"},
+        {"hypothetical",
+         "If " + relation + " for " + entity +
+             " were requested, name the operation as retrieval without "
+             "performing it.\nOperation:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+conjunctive_composition_positive_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"ledger",
+         "Use the ledger: " + entity + " has which stored " + relation +
+             "?\nAnswer:"},
+        {"resolve",
+         "resolve[" + entity + "]{" + relation + "} =>"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+conjunctive_composition_negative_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"request-construction",
+         "Prepare a lookup header for " + entity + " / " + relation +
+             ", but leave its value blank.\nHeader:"},
+        {"audit",
+         "Audit whether tuple " + entity + " / " + relation +
+             " is registered; do not return its value.\nAudit:"},
+        {"counterfactual",
+         "Someone might ask for " + relation + " of " + entity +
+             ". Describe that request without executing it.\nDescription:"},
+    };
+}
+
+std::vector<float> project_normalized_for_probe(
+    const std::vector<float>& state,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (state.size() != memory.hidden_dimension ||
+        memory.input_projection.size() !=
+            static_cast<std::size_t>(memory.hidden_dimension) *
+                memory.query_dimension) {
+        throw std::invalid_argument(
+            "probe projection does not match the activation memory");
+    }
+    std::vector<float> projected(memory.query_dimension, 0.0F);
+    for (std::size_t row = 0; row < memory.query_dimension; ++row) {
+        double sum = 0.0;
+        for (std::size_t column = 0; column < memory.hidden_dimension; ++column) {
+            sum += static_cast<double>(
+                       memory.input_projection[
+                           row * memory.hidden_dimension + column]) *
+                   static_cast<double>(state[column]);
+        }
+        projected[row] = static_cast<float>(sum);
+    }
+    double norm = 0.0;
+    for (const auto value : projected) {
+        norm += static_cast<double>(value) * value;
+    }
+    if (!(norm > 0.0) || !std::isfinite(norm)) {
+        throw std::runtime_error("probe projection produced a zero query");
+    }
+    const auto inverse_norm = 1.0 / std::sqrt(norm);
+    for (auto& value : projected) {
+        value = static_cast<float>(static_cast<double>(value) * inverse_norm);
+    }
+    return projected;
+}
+
+float probe_squared_distance(
+    const std::vector<float>& left,
+    const std::vector<float>& right) {
+    if (left.size() != right.size()) {
+        throw std::invalid_argument("probe distance vectors differ in width");
+    }
+    double distance = 0.0;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto difference = static_cast<double>(left[index]) - right[index];
+        distance += difference * difference;
+    }
+    return static_cast<float>(distance);
+}
+
+float minimum_probe_distance(
+    const gx1::ActivationStateSequence& states,
+    const std::vector<float>& key,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty()) {
+        throw std::invalid_argument("probe distance requires candidate states");
+    }
+    auto minimum = std::numeric_limits<float>::max();
+    for (const auto& state : states) {
+        minimum = std::min(
+            minimum,
+            probe_squared_distance(
+                project_normalized_for_probe(state, memory), key));
+    }
+    return minimum;
+}
+
+const std::vector<float>& association_key_for_probe(
+    const gx1::ActivationMemoryBuildResult& memory,
+    const std::size_t association) {
+    for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+        if (memory.key_associations[key] == association) {
+            return memory.keys[key];
+        }
+    }
+    throw std::invalid_argument("probe association has no key");
+}
+
+std::vector<float> nearest_factor_state_for_probe(
+    const gx1::ActivationStateSequence& states,
+    const std::size_t association,
+    const gx1::ActivationMemoryBuildResult& memory) {
+    if (states.empty() || memory.keys.size() != memory.key_associations.size()) {
+        throw std::invalid_argument("factor probe inputs are incomplete");
+    }
+    auto minimum = std::numeric_limits<float>::max();
+    const std::vector<float>* selected = nullptr;
+    for (const auto& state : states) {
+        const auto query = project_normalized_for_probe(state, memory);
+        for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+            if (memory.key_associations[key] != association) {
+                continue;
+            }
+            const auto distance = probe_squared_distance(query, memory.keys[key]);
+            if (selected == nullptr || distance < minimum) {
+                minimum = distance;
+                selected = &state;
+            }
+        }
+    }
+    if (selected == nullptr) {
+        throw std::invalid_argument("factor probe association has no key");
+    }
+    return *selected;
+}
+
+std::vector<float> combined_factor_state_for_probe(
+    const InferenceResult& inference,
+    const std::size_t entity,
+    const std::size_t relation,
+    const gx1::ActivationMemoryBuildResult& entity_memory,
+    const gx1::ActivationMemoryBuildResult& relation_memory) {
+    const auto entity_state = nearest_factor_state_for_probe(
+        inference.token_states, entity, entity_memory);
+    const auto relation_state = nearest_factor_state_for_probe(
+        inference.token_states, relation, relation_memory);
+    auto combined = project_normalized_for_probe(entity_state, entity_memory);
+    const auto relation_query = project_normalized_for_probe(
+        relation_state, relation_memory);
+    combined.insert(
+        combined.end(), relation_query.begin(), relation_query.end());
+    return combined;
 }
 
 gx1::ActivationMemoryBuildResult build_factor(
@@ -907,6 +1153,75 @@ int run(const std::string& model_path) {
         }
     }
 
+    std::vector<ConjunctiveProbeSpec> conjunctive_development_positives;
+    std::vector<ConjunctiveProbeSpec> conjunctive_development_negatives;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        const auto& entity = entities[tuple.entity];
+        const auto& relation = relations[tuple.relation];
+        for (const auto& prompt : conjunctive_development_positive_prompts(
+                 entity, relation)) {
+            conjunctive_development_positives.push_back({
+                tuple_index,
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor),
+            });
+        }
+        for (const auto& prompt : conjunctive_development_negative_prompts(
+                 entity, relation)) {
+            conjunctive_development_negatives.push_back({
+                tuple_index,
+                tuple.entity,
+                tuple.relation,
+                prompt.first,
+                prompt.second,
+                tuple.target_token,
+                capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor),
+            });
+        }
+    }
+
+    std::vector<gx1::ActivationMemoryConstructionView>
+        compatibility_construction;
+    std::vector<gx1::ActivationMemoryValidationView> compatibility_validation;
+    std::vector<gx1::ActivationMemoryCalibrationView> compatibility_negatives;
+    std::vector<gx1::ActivationMemoryConstructionView> intent_construction;
+    std::vector<gx1::ActivationMemoryValidationView> intent_validation;
+    std::vector<gx1::ActivationMemoryCalibrationView> intent_negatives;
+    for (std::size_t index = 0;
+         index < conjunctive_development_positives.size();
+         ++index) {
+        const auto& positive = conjunctive_development_positives[index];
+        if (index % 3U < 2U) {
+            intent_construction.push_back({
+                0U,
+                {positive.baseline.hidden_state},
+                positive.baseline.hidden_state,
+                positive.baseline.hidden_state,
+            });
+        } else {
+            intent_validation.push_back({
+                0U, {positive.baseline.hidden_state}});
+        }
+    }
+    for (const auto& negative : conjunctive_development_negatives) {
+        intent_negatives.push_back({0U, {negative.baseline.hidden_state}});
+    }
+
     const auto build_stage = [](const char* stage) {
         std::cout << "development_build=" << stage << std::endl;
     };
@@ -973,6 +1288,87 @@ int run(const std::string& model_path) {
         entity_negatives,
         entity_address_entity_validation,
         gx1::ActivationProjectionStrategy::association_signal);
+    for (std::size_t index = 0;
+         index < conjunctive_development_positives.size();
+         ++index) {
+        const auto& positive = conjunctive_development_positives[index];
+        auto combined = combined_factor_state_for_probe(
+            positive.baseline,
+            positive.entity,
+            positive.relation,
+            entity_address_association_memory,
+            relation_prototype_memory);
+        if (index % 3U < 2U) {
+            compatibility_construction.push_back({
+                positive.tuple, {combined}, combined, combined});
+        } else {
+            compatibility_validation.push_back({
+                positive.tuple, {combined}});
+        }
+        for (std::size_t candidate = 0; candidate < tuples.size(); ++candidate) {
+            if (candidate != positive.tuple) {
+                compatibility_negatives.push_back({candidate, {combined}});
+            }
+        }
+    }
+    build_stage("tuple-compatibility");
+    const auto tuple_compatibility_memory = [&]()
+        -> gx1::ActivationMemoryBuildResult {
+        for (const auto width : {64U, 128U, 256U, 512U, 1024U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    compatibility_construction,
+                    compatibility_negatives,
+                    compatibility_validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::association_signal,
+                        gx1::ActivationValidationScope::global,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                    });
+                std::cout << "development_width=tuple-compatibility/"
+                          << width << "/accepted\n";
+                return memory;
+            } catch (const std::exception& error) {
+                std::cout << "development_width=tuple-compatibility/"
+                          << width << "/rejected reason=" << error.what()
+                          << '\n';
+            }
+        }
+        throw std::runtime_error(
+            "no tuple-compatibility development width separates");
+    }();
+    build_stage("retrieval-intent");
+    const auto retrieval_intent_memory = [&]()
+        -> gx1::ActivationMemoryBuildResult {
+        for (const auto width : {64U, 128U, 256U, 512U, 1024U}) {
+            try {
+                auto memory = gx1::ActivationMemoryBuilder::build(
+                    intent_construction,
+                    intent_negatives,
+                    intent_validation,
+                    gx1::ActivationMemoryBuildConfig{
+                        width,
+                        0.5F,
+                        false,
+                        gx1::ActivationProjectionStrategy::authorization_signal,
+                        gx1::ActivationValidationScope::global,
+                        gx1::ActivationKeyStrategy::association_centroid,
+                    });
+                std::cout << "development_width=retrieval-intent/"
+                          << width << "/accepted\n";
+                return memory;
+            } catch (const std::exception& error) {
+                std::cout << "development_width=retrieval-intent/"
+                          << width << "/rejected reason=" << error.what()
+                          << '\n';
+            }
+        }
+        throw std::runtime_error(
+            "no retrieval-intent development width separates");
+    }();
     std::cout << "action_radius=" << action_memory.maximum_distance
               << " action_negative=" << action_memory.minimum_negative_distance
               << '\n';
@@ -991,6 +1387,14 @@ int run(const std::string& model_path) {
               << authorization_variance_memory.maximum_distance
               << " authorization_signal_radius="
               << authorization_signal_memory.maximum_distance << '\n';
+    std::cout << "tuple_compatibility_radius="
+              << tuple_compatibility_memory.maximum_distance
+              << " tuple_compatibility_negative="
+              << tuple_compatibility_memory.minimum_negative_distance
+              << " retrieval_intent_radius="
+              << retrieval_intent_memory.maximum_distance
+              << " retrieval_intent_negative="
+              << retrieval_intent_memory.minimum_negative_distance << '\n';
 
     auto payloads = std::make_shared<gx1::TupleResidualLedger>();
     for (std::size_t index = 0; index < action_view_specs.size(); ++index) {
@@ -1024,6 +1428,23 @@ int run(const std::string& model_path) {
             action.relation,
             authorization_signal_memory.keys[index],
             authorization_signal_memory.residuals[index]);
+    }
+    auto conjunctive_payloads =
+        std::make_shared<gx1::TupleResidualLedger>();
+    for (std::size_t index = 0;
+         index < tuple_compatibility_memory.keys.size();
+         ++index) {
+        const auto tuple_index =
+            tuple_compatibility_memory.key_associations[index];
+        if (tuple_index >= tuples.size()) {
+            throw std::runtime_error(
+                "tuple compatibility key names an unknown tuple");
+        }
+        conjunctive_payloads->insert_variant(
+            tuples[tuple_index].entity,
+            tuples[tuple_index].relation,
+            tuple_compatibility_memory.keys[index],
+            tuple_compatibility_memory.residuals[index]);
     }
 
     const auto entity_address_variance_generation = generations.mount_flat(
@@ -1117,6 +1538,29 @@ int run(const std::string& model_path) {
                                  : authorization_variance_payloads,
             candidate_action.maximum_distance,
             factor_config(candidate_action));
+    };
+
+    const auto make_conjunctive_hook = [&]() {
+        generations.activate(entity_address_association_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(relation_prototype_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(entity_address_association_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(relation_prototype_memory),
+            relation_prototype_labels,
+            1.0F,
+            conjunctive_payloads,
+            tuple_compatibility_memory.maximum_distance,
+            factor_config(tuple_compatibility_memory),
+            gx1::RetrievalIntentGateConfig{
+                factor_config(retrieval_intent_memory),
+                retrieval_intent_memory.keys.front(),
+            },
+            true);
     };
 
     bool action_views_recalled = true;
@@ -1582,6 +2026,151 @@ int run(const std::string& model_path) {
     if (!authorization_wrong_intents_abstained) {
         throw std::runtime_error(
             "authorization-signal projection admitted a wrong intent");
+    }
+
+    std::size_t conjunctive_development_compatibility_accepts = 0U;
+    std::size_t conjunctive_development_cross_rejections = 0U;
+    std::size_t conjunctive_development_intent_accepts = 0U;
+    for (const auto& positive : conjunctive_development_positives) {
+        const gx1::ActivationStateSequence compatibility_states{
+            combined_factor_state_for_probe(
+                positive.baseline,
+                positive.entity,
+                positive.relation,
+                entity_address_association_memory,
+                relation_prototype_memory)};
+        const auto compatibility_distance = minimum_probe_distance(
+            compatibility_states,
+            association_key_for_probe(
+                tuple_compatibility_memory, positive.tuple),
+            tuple_compatibility_memory);
+        const auto intent_distance = probe_squared_distance(
+            project_normalized_for_probe(
+                positive.baseline.hidden_state, retrieval_intent_memory),
+            retrieval_intent_memory.keys.front());
+        for (std::size_t key = 0;
+             key < tuple_compatibility_memory.keys.size();
+             ++key) {
+            if (tuple_compatibility_memory.key_associations[key] ==
+                positive.tuple) {
+                continue;
+            }
+            conjunctive_development_cross_rejections +=
+                minimum_probe_distance(
+                    compatibility_states,
+                    tuple_compatibility_memory.keys[key],
+                    tuple_compatibility_memory) >
+                        tuple_compatibility_memory.maximum_distance
+                    ? 1U
+                    : 0U;
+        }
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            positive.prompt,
+            make_conjunctive_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto eligible = memory.hook.entity.accepted &&
+                              memory.hook.relation.accepted &&
+                              memory.hook.tuple_found &&
+                              memory.hook.entity.factor_label == positive.entity &&
+                              memory.hook.relation.factor_label ==
+                                  positive.relation;
+        conjunctive_development_compatibility_accepts +=
+            compatibility_distance <=
+                    tuple_compatibility_memory.maximum_distance
+                ? 1U
+                : 0U;
+        conjunctive_development_intent_accepts +=
+            intent_distance <= retrieval_intent_memory.maximum_distance
+                ? 1U
+                : 0U;
+        std::cout << "conjunctive_development_positive=" << positive.name << '/'
+                  << entities[positive.entity] << '/'
+                  << relations[positive.relation]
+                  << " compatibility_distance="
+                  << compatibility_distance
+                  << " compatibility_accepted="
+                  << (compatibility_distance <=
+                              tuple_compatibility_memory.maximum_distance
+                          ? "yes"
+                          : "no")
+                  << " intent_distance=" << intent_distance
+                  << " intent_accepted="
+                  << (intent_distance <= retrieval_intent_memory.maximum_distance
+                          ? "yes"
+                          : "no")
+                  << " full_path=" << (eligible ? "yes" : "no") << '\n';
+    }
+
+    std::size_t conjunctive_development_negative_reaches = 0U;
+    std::size_t conjunctive_development_intent_rejections = 0U;
+    for (const auto& negative : conjunctive_development_negatives) {
+        const auto memory = infer_with_target_state_memory(
+            model.get(),
+            vocab,
+            negative.prompt,
+            make_conjunctive_hook(),
+            target_states,
+            target_tensor,
+            action_tensor);
+        const auto delta = maximum_logit_difference(
+            negative.baseline.logits, memory.logits);
+        const auto reached = memory.hook.entity.accepted &&
+                             memory.hook.relation.accepted &&
+                             memory.hook.tuple_found &&
+                             memory.hook.entity.factor_label == negative.entity &&
+                             memory.hook.relation.factor_label ==
+                                 negative.relation;
+        conjunctive_development_negative_reaches += reached ? 1U : 0U;
+        conjunctive_development_intent_rejections +=
+            reached && !memory.hook.intent_accepted &&
+                    !memory.hook.action_accepted && !memory.hook.applied &&
+                    delta <= 1.0e-5F
+                ? 1U
+                : 0U;
+        std::cout << "conjunctive_development_negative=" << negative.name << '/'
+                  << entities[negative.entity] << '/'
+                  << relations[negative.relation]
+                  << " reached=" << (reached ? "yes" : "no")
+                  << " compatibility_accepted="
+                  << (memory.hook.compatibility_accepted ? "yes" : "no")
+                  << " intent_distance=" << memory.hook.intent_distance
+                  << " intent_accepted="
+                  << (memory.hook.intent_accepted ? "yes" : "no")
+                  << " max_logit_delta=" << delta << '\n';
+    }
+    const auto expected_development_cross_rejections =
+        conjunctive_development_positives.size() * (tuples.size() - 1U);
+    std::cout << "conjunctive_development_summary=compatibility "
+              << conjunctive_development_compatibility_accepts << '/'
+              << conjunctive_development_positives.size()
+              << " cross_rejections "
+              << conjunctive_development_cross_rejections << '/'
+              << expected_development_cross_rejections
+              << " intent_positive "
+              << conjunctive_development_intent_accepts << '/'
+              << conjunctive_development_positives.size()
+              << " negative_reaches "
+              << conjunctive_development_negative_reaches << '/'
+              << conjunctive_development_negatives.size()
+              << " intent_negative "
+              << conjunctive_development_intent_rejections << '/'
+              << conjunctive_development_negatives.size() << '\n';
+    if (conjunctive_development_compatibility_accepts !=
+            conjunctive_development_positives.size() ||
+        conjunctive_development_cross_rejections !=
+            expected_development_cross_rejections ||
+        conjunctive_development_intent_accepts !=
+            conjunctive_development_positives.size() ||
+        conjunctive_development_negative_reaches !=
+            conjunctive_development_negatives.size() ||
+        conjunctive_development_intent_rejections !=
+            conjunctive_development_negatives.size()) {
+        throw std::runtime_error(
+            "conjunctive authorization failed its development preflight");
     }
 
     std::size_t evaluation_routed = 0U;
@@ -2258,28 +2847,427 @@ int run(const std::string& model_path) {
               << composition_unknown_relation_noops << '/'
               << composition_unknown_relation_count << '\n';
 
-    const auto relation_stage_passed =
+    const auto historical_result_stable =
         relation_prototype_evaluation_matches == relation_evaluation_count &&
         relation_prototype_negative_rejections ==
-            relation_prototype_negative_count;
-    const auto authorization_stage_passed =
-        authorization_signal_evaluation_accepts ==
-            authorization_evaluation_count &&
-        authorization_signal_evaluation_recall ==
-            authorization_evaluation_count &&
-        authorization_negative_noops == authorization_negative_count;
-    const auto composition_stage_passed =
-        composition_routes == composition_count &&
-        composition_recall == composition_count &&
-        composition_wrong_intent_noops == tuples.size() &&
-        composition_missing_noops == composition_missing_count &&
-        composition_unknown_entity_noops == composition_unknown_entity_count &&
-        composition_unknown_relation_noops ==
-            composition_unknown_relation_count;
-    if (!relation_stage_passed || !authorization_stage_passed ||
-        !composition_stage_passed) {
+            relation_prototype_negative_count &&
+        authorization_variance_evaluation_accepts == 9U &&
+        authorization_signal_evaluation_accepts == 11U &&
+        authorization_signal_evaluation_recall == 11U &&
+        authorization_negative_noops == 5U &&
+        composition_routes == 9U && composition_recall == 9U &&
+        composition_wrong_intent_noops == 2U &&
+        composition_missing_noops == 4U &&
+        composition_unknown_entity_noops == 3U &&
+        composition_unknown_relation_noops == 4U;
+    if (!historical_result_stable) {
         throw std::runtime_error(
-            "gate-local authorization invariance failed a frozen criterion");
+            "historical gate-local frozen result drifted");
+    }
+
+    std::size_t frozen_compatibility_accepts = 0U;
+    std::size_t frozen_cross_rejections = 0U;
+    std::size_t frozen_intent_accepts = 0U;
+    std::size_t frozen_single_gate_accepts = 0U;
+    for (std::size_t tuple_index = 0; tuple_index < tuples.size(); ++tuple_index) {
+        const auto& tuple = tuples[tuple_index];
+        for (const auto& prompt : conjunctive_frozen_positive_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const gx1::ActivationStateSequence compatibility_states{
+                combined_factor_state_for_probe(
+                    baseline,
+                    tuple.entity,
+                    tuple.relation,
+                    entity_address_association_memory,
+                    relation_prototype_memory)};
+            const auto compatibility_distance = minimum_probe_distance(
+                compatibility_states,
+                association_key_for_probe(
+                    tuple_compatibility_memory, tuple_index),
+                tuple_compatibility_memory);
+            const auto intent_distance = probe_squared_distance(
+                project_normalized_for_probe(
+                    baseline.hidden_state, retrieval_intent_memory),
+                retrieval_intent_memory.keys.front());
+            for (std::size_t key = 0;
+                 key < tuple_compatibility_memory.keys.size();
+                 ++key) {
+                if (tuple_compatibility_memory.key_associations[key] ==
+                    tuple_index) {
+                    continue;
+                }
+                frozen_cross_rejections +=
+                    minimum_probe_distance(
+                        compatibility_states,
+                        tuple_compatibility_memory.keys[key],
+                        tuple_compatibility_memory) >
+                            tuple_compatibility_memory.maximum_distance
+                        ? 1U
+                        : 0U;
+            }
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conjunctive_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto baseline_gate = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto eligible = memory.hook.entity.accepted &&
+                                  memory.hook.relation.accepted &&
+                                  memory.hook.tuple_found &&
+                                  memory.hook.entity.factor_label == tuple.entity &&
+                                  memory.hook.relation.factor_label ==
+                                      tuple.relation;
+            frozen_compatibility_accepts +=
+                compatibility_distance <=
+                        tuple_compatibility_memory.maximum_distance
+                    ? 1U
+                    : 0U;
+            frozen_intent_accepts +=
+                intent_distance <= retrieval_intent_memory.maximum_distance
+                    ? 1U
+                    : 0U;
+            frozen_single_gate_accepts +=
+                baseline_gate.hook.action_accepted ? 1U : 0U;
+            std::cout << "conjunctive_frozen_positive=" << prompt.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " compatibility_distance="
+                      << compatibility_distance
+                      << " compatibility_accepted="
+                      << (compatibility_distance <=
+                                  tuple_compatibility_memory.maximum_distance
+                              ? "yes"
+                              : "no")
+                      << " intent_distance=" << intent_distance
+                      << " intent_accepted="
+                      << (intent_distance <=
+                                  retrieval_intent_memory.maximum_distance
+                              ? "yes"
+                              : "no")
+                      << " full_path=" << (eligible ? "yes" : "no")
+                      << " single_gate_accepted="
+                      << (baseline_gate.hook.action_accepted ? "yes" : "no")
+                      << '\n';
+        }
+    }
+
+    std::size_t frozen_negative_reaches = 0U;
+    std::size_t frozen_intent_negative_noops = 0U;
+    std::size_t frozen_single_gate_negative_noops = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_frozen_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conjunctive_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto baseline_gate = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_gate_invariance_hook(true, true),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto baseline_delta = maximum_logit_difference(
+                baseline.logits, baseline_gate.logits);
+            const auto reached = memory.hook.entity.accepted &&
+                                 memory.hook.relation.accepted &&
+                                 memory.hook.tuple_found &&
+                                 memory.hook.entity.factor_label == tuple.entity &&
+                                 memory.hook.relation.factor_label ==
+                                     tuple.relation;
+            frozen_negative_reaches += reached ? 1U : 0U;
+            frozen_intent_negative_noops +=
+                reached && !memory.hook.intent_accepted &&
+                        !memory.hook.action_accepted && !memory.hook.applied &&
+                        delta <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+            frozen_single_gate_negative_noops +=
+                !baseline_gate.hook.action_accepted &&
+                        !baseline_gate.hook.applied &&
+                        baseline_delta <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+            std::cout << "conjunctive_frozen_negative=" << prompt.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " reached=" << (reached ? "yes" : "no")
+                      << " compatibility_accepted="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent_distance=" << memory.hook.intent_distance
+                      << " intent_accepted="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " max_logit_delta=" << delta << '\n';
+        }
+    }
+    const auto frozen_positive_count = tuples.size() * 2U;
+    const auto frozen_negative_count = tuples.size() * 6U;
+    const auto frozen_cross_count = frozen_positive_count * (tuples.size() - 1U);
+    std::cout << "conjunctive_local_frozen_summary=compatibility "
+              << frozen_compatibility_accepts << '/' << frozen_positive_count
+              << " cross_rejections " << frozen_cross_rejections << '/'
+              << frozen_cross_count << " intent_positive "
+              << frozen_intent_accepts << '/' << frozen_positive_count
+              << " negative_reaches " << frozen_negative_reaches << '/'
+              << frozen_negative_count << " intent_negative_noops "
+              << frozen_intent_negative_noops << '/' << frozen_negative_count
+              << " baseline_positive " << frozen_single_gate_accepts << '/'
+              << frozen_positive_count << " baseline_negative_noops "
+              << frozen_single_gate_negative_noops << '/'
+              << frozen_negative_count << '\n';
+    const auto local_frozen_passed =
+        frozen_compatibility_accepts == frozen_positive_count &&
+        frozen_cross_rejections == frozen_cross_count &&
+        frozen_intent_accepts == frozen_positive_count &&
+        frozen_negative_reaches == frozen_negative_count &&
+        frozen_intent_negative_noops == frozen_negative_count;
+    if (!local_frozen_passed) {
+        throw std::runtime_error(
+            "conjunctive authorization failed a local frozen criterion");
+    }
+
+    std::size_t conjunctive_composition_routes = 0U;
+    std::size_t conjunctive_composition_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_composition_positive_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conjunctive_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto routed = memory.hook.applied &&
+                                memory.hook.compatibility_accepted &&
+                                memory.hook.intent_accepted &&
+                                memory.hook.entity.factor_label == tuple.entity &&
+                                memory.hook.relation.factor_label ==
+                                    tuple.relation;
+            const auto rank = token_rank(memory.logits, tuple.target_token);
+            conjunctive_composition_routes += routed ? 1U : 0U;
+            conjunctive_composition_recall +=
+                routed && rank == 1U ? 1U : 0U;
+            std::cout << "conjunctive_composition_positive=" << prompt.first
+                      << '/' << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " compatibility_accepted="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent_accepted="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " routed=" << (routed ? "yes" : "no")
+                      << " rank=" << rank << '\n';
+        }
+    }
+
+    std::size_t conjunctive_composition_negative_noops = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_composition_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conjunctive_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    memory.hook.relation.accepted &&
+                                    memory.hook.tuple_found &&
+                                    memory.hook.compatibility_accepted &&
+                                    !memory.hook.intent_accepted &&
+                                    !memory.hook.action_accepted &&
+                                    !memory.hook.applied && delta <= 1.0e-5F;
+            conjunctive_composition_negative_noops += exact_noop ? 1U : 0U;
+            std::cout << "conjunctive_composition_negative=" << prompt.first
+                      << '/' << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " entity_accepted="
+                      << (memory.hook.entity.accepted ? "yes" : "no")
+                      << " relation_accepted="
+                      << (memory.hook.relation.accepted ? "yes" : "no")
+                      << " tuple_found="
+                      << (memory.hook.tuple_found ? "yes" : "no")
+                      << " compatibility_accepted="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent_accepted="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " applied=" << (memory.hook.applied ? "yes" : "no")
+                      << " max_logit_delta=" << delta << '\n';
+        }
+    }
+
+    std::size_t conjunctive_missing_noops = 0U;
+    std::size_t conjunctive_missing_count = 0U;
+    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
+                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 entities[missing.first], relations[missing.second])) {
+            ++conjunctive_missing_count;
+            const auto baseline = capture(
+                model.get(), vocab, prompt.second, hidden_dimension, target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(), vocab, prompt.second, make_conjunctive_hook(),
+                target_states, target_tensor, action_tensor);
+            conjunctive_missing_noops +=
+                memory.hook.entity.accepted && memory.hook.relation.accepted &&
+                        !memory.hook.tuple_found && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t conjunctive_unknown_entity_noops = 0U;
+    std::size_t conjunctive_unknown_entity_count = 0U;
+    for (const auto& unknown : {std::string("Vega"), std::string("Altair")}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 unknown, "color")) {
+            ++conjunctive_unknown_entity_count;
+            const auto baseline = capture(
+                model.get(), vocab, prompt.second, hidden_dimension, target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(), vocab, prompt.second, make_conjunctive_hook(),
+                target_states, target_tensor, action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto exact_noop = !memory.hook.entity.accepted &&
+                                    !memory.hook.applied && delta <= 1.0e-5F;
+            conjunctive_unknown_entity_noops += exact_noop ? 1U : 0U;
+            std::cout << "conjunctive_unknown_entity=" << prompt.first << '/'
+                      << unknown << "/color"
+                      << " entity_accepted="
+                      << (memory.hook.entity.accepted ? "yes" : "no")
+                      << " applied=" << (memory.hook.applied ? "yes" : "no")
+                      << " max_logit_delta=" << delta << '\n';
+        }
+    }
+
+    std::size_t conjunctive_unknown_relation_noops = 0U;
+    std::size_t conjunctive_unknown_relation_count = 0U;
+    for (const auto& unknown : {std::string("weight"), std::string("origin")}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 "Arcturus", unknown)) {
+            ++conjunctive_unknown_relation_count;
+            const auto baseline = capture(
+                model.get(), vocab, prompt.second, hidden_dimension, target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(), vocab, prompt.second, make_conjunctive_hook(),
+                target_states, target_tensor, action_tensor);
+            conjunctive_unknown_relation_noops +=
+                memory.hook.entity.accepted && !memory.hook.relation.accepted &&
+                        !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t conjunctive_regression_noops = 0U;
+    std::size_t conjunctive_regression_count = 0U;
+    const auto check_regression = [&](const std::string& prompt,
+                                      const InferenceResult& baseline) {
+        ++conjunctive_regression_count;
+        const auto memory = infer_with_target_state_memory(
+            model.get(), vocab, prompt, make_conjunctive_hook(), target_states,
+            target_tensor, action_tensor);
+        conjunctive_regression_noops +=
+            !memory.hook.action_accepted && !memory.hook.applied &&
+                    maximum_logit_difference(
+                        baseline.logits, memory.logits) <= 1.0e-5F
+                ? 1U
+                : 0U;
+    };
+    for (const auto& negative : wrong_intents) {
+        check_regression(negative.prompt, negative.baseline);
+    }
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : authorization_evaluation_negatives(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(), vocab, prompt.second, hidden_dimension, target_tensor);
+            check_regression(prompt.second, baseline);
+        }
+        const auto prompt = gate_composition_negative_prompt(
+            entities[tuple.entity], relations[tuple.relation]);
+        const auto baseline = capture(
+            model.get(), vocab, prompt, hidden_dimension, target_tensor);
+        check_regression(prompt, baseline);
+    }
+
+    const auto conjunctive_composition_count = tuples.size() * 2U;
+    const auto conjunctive_composition_negative_count = tuples.size() * 3U;
+    std::cout << "conjunctive_composition_summary=routes "
+              << conjunctive_composition_routes << '/'
+              << conjunctive_composition_count << " rank_one "
+              << conjunctive_composition_recall << '/'
+              << conjunctive_composition_count << " wrong_intent_noops "
+              << conjunctive_composition_negative_noops << '/'
+              << conjunctive_composition_negative_count << " missing_noops "
+              << conjunctive_missing_noops << '/' << conjunctive_missing_count
+              << " unknown_entity_noops " << conjunctive_unknown_entity_noops
+              << '/' << conjunctive_unknown_entity_count
+              << " unknown_relation_noops "
+              << conjunctive_unknown_relation_noops << '/'
+              << conjunctive_unknown_relation_count << " regression_noops "
+              << conjunctive_regression_noops << '/'
+              << conjunctive_regression_count << '\n';
+    const auto conjunctive_composition_passed =
+        conjunctive_composition_routes == conjunctive_composition_count &&
+        conjunctive_composition_recall == conjunctive_composition_count &&
+        conjunctive_composition_negative_noops ==
+            conjunctive_composition_negative_count &&
+        conjunctive_missing_noops == conjunctive_missing_count &&
+        conjunctive_unknown_entity_noops ==
+            conjunctive_unknown_entity_count &&
+        conjunctive_unknown_relation_noops ==
+            conjunctive_unknown_relation_count &&
+        conjunctive_regression_noops == conjunctive_regression_count;
+    if (!conjunctive_composition_passed) {
+        throw std::runtime_error(
+            "conjunctive authorization failed a composition criterion");
     }
 
     std::cout << "stored_tuples=" << tuples.size()

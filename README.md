@@ -38,15 +38,15 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-The latest probe changes the two downstream representations independently. A
-relation centroid identified 12/12 frozen relations and rejected 4/4 unknown
-relations. A contrastive authorization projection improved positive coverage
-from the variance baseline's 9/12 to 11/12, with rank-one recall whenever the
-complete path authorized, but preserved exact no-op behavior on only 5/12 fresh
-wrong intents. Composition consequently reached 9/12 rank-one targets and
-failed its preregistered authority criterion. The result separates a successful
-relation representation from an authorization signal that is broad but not yet
-specific enough.
+The latest probe replaces one broad authorization signal with separate tuple
+compatibility and global retrieval-intent decisions. Both passed their frozen
+local criteria: 12/12 compatibility positives, 60/60 cross-tuple rejections,
+12/12 intent positives, and 36/36 eligible negative no-ops. Their composition
+reached 11/12 rank-one targets and rejected 17/18 new wrong intents, while all
+30 earlier wrong-intent regressions remained no-ops. One counterfactual was
+authorized, one unseen retrieval form was rejected, and one unknown entity
+passed its factor gate, so the all-or-nothing composition criterion failed and
+persistence remains deferred.
 
 ## Research questions
 
@@ -185,6 +185,7 @@ measurable. Model files are not included in this repository.
 | Two-stage target-state probe | 10/12 frozen prompts routed; target state reached rank one on 10/10 authorized prompts versus 6/10 for residuals | 12/12 wrong intents, 2/2 missing tuples, and 2 rejected archive prompts were exact no-ops | Missed its 12/12 criterion at the compact Arcturus entity gate |
 | Entity-address invariance probe | Association signal identified 18/18 entities versus 13/18 for variance; 9/9 authorized target states reached rank one | 6/6 unknown entities, 12/12 wrong intents, and 2/2 missing tuples were exact no-ops | End-to-end criterion failed at 9/18 on unchanged relation and action gates |
 | Gate-local invariance probe | Relation centroid matched 12/12; authorization signal accepted and recalled 11/12; composition recalled 9/12 | Relation rejected 4/4 unknowns; action rejected 5/12 fresh wrong intents; composition preserved 4/4 missing tuples, 3/4 unknown entities, and 4/4 unknown relations | Relation passed independently; authorization and composition failed their frozen criteria |
+| Conjunctive retrieval authorization | Local compatibility and intent each accepted 12/12 positives; composition produced 11/12 rank-one targets | Compatibility rejected 60/60 wrong tuples; intent made 36/36 local negatives and 17/18 composition negatives exact no-ops; 30/30 prior wrong intents remained no-ops | Both local gates passed; composition failed on one positive, one counterfactual, and one unknown-entity factor decision |
 
 ### Topology-aware action probe
 
@@ -279,6 +280,27 @@ on its independent split; the contrastive coordinates expanded authorization
 coverage but did not isolate retrieval intent. The frozen probe remains
 unchanged. See the full preregistration, preflight amendment, and result in
 [Gate-local authorization invariance](docs/gate-local-authorization-invariance.md).
+
+### Conjunctive retrieval authorization
+
+The follow-up kept the successful entity and relation representations and split
+the downstream decision into tuple compatibility and tuple-independent
+retrieval intent. Development strictly separated both spaces before the first
+frozen prompt. On the local frozen split, compatibility accepted 12/12 selected
+tuples and rejected all 60 cross-tuple comparisons; intent accepted 12/12
+retrievals and rejected all 36 eligible non-retrieval controls with exactly
+unchanged logits. The previous single gate accepted the same 12 positives but
+rejected none of those 36 controls.
+
+Composition was close but failed its preregistered all-or-nothing criterion.
+Eleven of twelve positives routed to rank one; `resolve[Bellatrix]{color}` was
+rejected by both new gates. Seventeen of eighteen new non-retrieval controls
+abstained, but the Draco/color counterfactual was authorized and changed logits
+by `23.2255`. Missing tuples were 4/4 no-ops, unknown relations 4/4, and all 30
+earlier wrong-intent regressions remained no-ops. Unknown entities stayed 3/4
+at their factor gate because `ledger/Vega/color` accepted Vega, though later
+gates prevented any state change. The frozen result and development history are
+recorded in [Conjunctive Retrieval Authorization](docs/conjunctive-retrieval-authorization.md).
 
 ## Calibration semantics
 
@@ -458,9 +480,9 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
   authored surface forms.
 - Residual actions remain view-conditioned; later target states are 10/10
   conditional on authorization but use aggressive full-state replacement.
-- Relation centroids passed the latest independent relation split, but the
-  authorization-signal action gate admitted 7/12 fresh wrong intents and the
-  composed path admitted 4/6 more; action authority is not form-stable.
+- Separate compatibility and intent gates passed their local frozen splits,
+  but composition rejected one unseen retrieval form and authorized one unseen
+  counterfactual; action authority is not yet composition-stable.
 - Effects on multi-token continuations and unrelated model capabilities have
   not been measured.
 - The factorized tuple/action ledger is not yet persisted as one atomic Glamin
@@ -473,17 +495,19 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
 
 1. Leave every existing frozen prompt untouched and retain the successful
    association-signal entity and centroid relation representations.
-2. Split authorization into tuple compatibility and an independently calibrated
-   retrieval-intent decision; expand development and frozen wrong-intent
-   families before composing another gate.
-3. Hold later target-state action and every current wrong-intent,
+2. Retain the passing local compatibility and intent results as frozen evidence;
+   do not tune them against the three observed composition failures.
+3. Preregister a fresh replication that broadens retrieval-form and
+   counterfactual development coverage while independently testing the existing
+   entity factor boundary.
+4. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
-4. Persist entity space, relation space, tuple membership, action variants,
+5. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
-5. Add generation-A/generation-B behavioral baselines and geometry diffs.
-6. Measure larger memories, broader negatives, multi-token recall, and general
+6. Add generation-A/generation-B behavioral baselines and geometry diffs.
+7. Measure larger memories, broader negatives, multi-token recall, and general
    capability retention.
-7. Add durable trace segments and an immutable source ledger before considering
+8. Add durable trace segments and an immutable source ledger before considering
    procedural mini-apps or external capabilities.
 
 ## Citation

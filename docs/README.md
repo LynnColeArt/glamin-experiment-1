@@ -29,6 +29,9 @@
 - [Gate-local authorization invariance](gate-local-authorization-invariance.md)
   records the preregistered relation prototypes, contrastive action
   authorization, independent composition test, and frozen result.
+- [Conjunctive retrieval authorization](conjunctive-retrieval-authorization.md)
+  records separate tuple-compatibility and retrieval-intent gates, passing
+  local frozen results, and a narrowly failing one-shot composed evaluation.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -71,4 +74,10 @@ the unchanged relation gate rejected three material questions and the action
 gate rejected all six URI forms. The gate-local follow-up then passed its
 relation stage at 12/12 positives and 4/4 unknown-relation rejections.
 Authorization signal reached 11/12 positives but rejected only 5/12 fresh wrong
-intents; composition reached 9/12 and failed the frozen authority criterion.
+intents; composition reached 9/12 and failed the frozen authority criterion. A
+subsequent conjunctive probe passed both independent local gates: compatibility
+accepted 12/12 positives and rejected 60/60 cross-tuples, while intent accepted
+12/12 positives and rejected 36/36 eligible negatives exactly. Composition
+reached 11/12 rank-one targets and 17/18 new negative no-ops, but one
+counterfactual was authorized and the existing entity factor remained 3/4 on
+unknowns. Persistence therefore remains deferred.
