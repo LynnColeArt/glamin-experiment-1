@@ -312,3 +312,12 @@ counterfactual and unknown-entity failures, but global knownness rejected one
 registered Bellatrix form. The experiment stopped before new frozen evaluation.
 Atomic persistence remains deferred until that specificity–recall boundary is
 resolved by a fresh representation and protocol.
+
+The first label-conditioned replacement gave each registered entity its own
+positive and matched-negative prototype under one shared projection. It passed
+development at width 32 with 32/32 matching acceptances, 96/96 cross-label
+rejections, and 32/32 unknown exact no-ops. A provenance audit then found that
+Altair had been used both as a development unknown and as an older frozen
+unknown-entity control. The candidate stopped before its prior-frozen run, so
+the promising development result is not a valid replication result and no new
+frozen prompt was evaluated.

@@ -92,9 +92,12 @@ A rollback reproduced the baseline logits exactly in the same process.
     intent margin, and prior-frozen regression gate: development passed and the
     safety regressions were repaired, but one known positive failed knownness,
     so the experiment stopped before new frozen evaluation.
-  - [ ] Test label-conditioned entity verification under a shared projection,
-    with the stopped corpus as a binding regression gate and a new untouched
-    composition split; protocol frozen before implementation.
+  - [x] Test label-conditioned entity verification under a shared projection:
+    development passed at the first width, but the protocol was invalidated
+    before regression because Altair appeared in development and prior frozen
+    controls; no new frozen prompt was evaluated.
+  - [ ] Repeat label-conditioned verification with corpus-disjoint development
+    unknowns and the entire prior corpus as a binding regression gate.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

@@ -3,10 +3,12 @@
 ## Status
 
 Protocol frozen on 2026-08-10 before implementation and before any prompt in
-the new frozen sets is evaluated. All prompts observed by earlier experiments,
-including `resolve[Bellatrix]{color}`, are regression evidence only. They may
-not select coordinates, widths, prototypes, radii, thresholds, or prompt
-families for this candidate.
+the new frozen sets was evaluated. Development passed, but a preregistration
+defect was identified before the candidate prior-frozen run: `Altair` appeared
+both as a development unknown and in the older frozen unknown-entity corpus.
+Because its entity token contributed to a negative prototype, that regression
+would not be independent. The experiment stopped; no candidate prior-frozen
+run and no new frozen prompt was evaluated.
 
 ## Motivation
 
@@ -104,6 +106,28 @@ selected using only this development split. Prompt text, substitutions, counts,
 mechanism, ordering, and criteria may not change after this document is
 committed.
 
+## Development Result and Protocol Stop
+
+The first preregistered width, `32`, passed the complete development preflight:
+32/32 association matches, 32/32 matching-label acceptances, 96/96 nonmatching
+registered-label rejections, 32/32 unknown-label rejections, and 32/32 unknown
+end-to-end exact no-ops. The per-label calibration was:
+
+| Label | Radius | Margin | Hardest positive gap | Strongest negative gap |
+| --- | ---: | ---: | ---: | ---: |
+| Arcturus | `0.630672` | `0.873619` | `2.10196` | `-0.354725` |
+| Bellatrix | `0.645241` | `0.574801` | `1.3522` | `-0.202595` |
+| Cygnus | `0.531156` | `0.580045` | `1.52591` | `-0.365822` |
+| Draco | `0.525309` | `0.806283` | `1.29861` | `0.313953` |
+
+After development and before the candidate regression, corpus provenance review
+found that `Altair` was not a clean development unknown: earlier experiments
+had already used it as a frozen unknown-entity control. Although the surrounding
+prompt forms differ, training the verifier on Altair states would directly
+weaken the independence of the prior-frozen gate. This is a protocol-design
+failure, not a model failure. The passing development artifact is retained as
+evidence but is ineligible for regression or frozen evaluation.
+
 ## Prior-Frozen Regression Gate
 
 The first configuration that passes development runs exactly once on the full
@@ -181,9 +205,8 @@ regression both pass. Once a frozen stage begins, the configuration is sealed.
 
 ## Consequence
 
-Atomic persistence remains deferred unless every stage passes. A pass would
-justify a separate persistence protocol for one atomically swappable generation
-containing entity and relation spaces, label-conditioned verifiers, tuple
-membership, compatibility and intent artifacts, gates, and target states. It
-would not by itself establish adversarial robustness or authority for external
-actions.
+Atomic persistence remains deferred. A fresh preregistration may retain the
+label-conditioned mechanism and fixed compatibility and intent artifacts, but
+must use development unknown labels absent from every prior development,
+regression, and frozen corpus. The untouched frozen sets in this document were
+never evaluated and remain unavailable to this stopped candidate.
