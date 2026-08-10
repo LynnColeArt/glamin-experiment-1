@@ -466,6 +466,13 @@ void test_factorized_authorization_conjoins_compatibility_and_intent() {
     expect(denied.compatibility_distance == 0.0F &&
                denied.intent_distance == 25.0F,
            "intent veto did not retain independent diagnostics");
+
+    const auto incompatible = hook.authorize_nearest(
+        factors, factors, std::vector<float>{9.0F, 4.0F});
+    expect(incompatible.tuple_found &&
+               !incompatible.compatibility_accepted &&
+               incompatible.intent_accepted && !incompatible.action_accepted,
+           "tuple compatibility rejection hid the independent intent result");
 }
 
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {

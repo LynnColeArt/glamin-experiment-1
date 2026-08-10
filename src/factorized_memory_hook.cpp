@@ -316,9 +316,6 @@ FactorizedLayerMemoryHook::authorize_selection(
     result.action_variant = action.variant;
     result.compatibility_accepted =
         action.distance <= maximum_action_distance_;
-    if (!result.compatibility_accepted) {
-        return {std::move(result), std::move(action)};
-    }
     if (intent_config_) {
         const auto intent_query = project(intent_config_->search, action_state);
         result.intent_distance = squared_distance(
