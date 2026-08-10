@@ -304,8 +304,11 @@ stages passed: 12/12 positives for each gate, 60/60 cross-tuple rejections, and
 17/18 new negative no-ops while preserving all 30 earlier wrong-intent no-ops.
 It nevertheless failed its strict criterion on one unseen retrieval form, one
 counterfactual, and one unknown-entity factor decision. A fresh replication
-should broaden positive syntax and counterfactual development coverage without
-tuning against these frozen examples, and should retest entity open-set
-rejection independently. That replication is frozen in
-[Composition-Stable Retrieval Authorization](composition-stable-retrieval-authorization.md).
-Atomic persistence remains deferred until that full boundary passes.
+broadened positive syntax and counterfactual development coverage and retested
+entity open-set rejection in the frozen
+[Composition-Stable Retrieval Authorization](composition-stable-retrieval-authorization.md)
+protocol. Development passed, and the prior-frozen gate repaired the
+counterfactual and unknown-entity failures, but global knownness rejected one
+registered Bellatrix form. The experiment stopped before new frozen evaluation.
+Atomic persistence remains deferred until that specificity–recall boundary is
+resolved by a fresh representation and protocol.

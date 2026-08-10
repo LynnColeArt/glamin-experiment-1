@@ -33,8 +33,8 @@
   records separate tuple-compatibility and retrieval-intent gates, passing
   local frozen results, and a narrowly failing one-shot composed evaluation.
 - [Composition-stable retrieval authorization](composition-stable-retrieval-authorization.md)
-  preregisters a fresh replication with a known-entity veto, contrastive intent
-  margin, prior-frozen regression gate, and untouched composition split.
+  records a fresh replication whose development passed but whose known-entity
+  veto failed one prior-frozen positive, stopping before new frozen evaluation.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -84,3 +84,7 @@ accepted 12/12 positives and rejected 60/60 cross-tuples, while intent accepted
 reached 11/12 rank-one targets and 17/18 new negative no-ops, but one
 counterfactual was authorized and the existing entity factor remained 3/4 on
 unknowns. Persistence therefore remains deferred.
+The composition-stability replication then repaired the prior counterfactual
+and all four unknown-entity controls while preserving every older no-op, but its
+knownness veto rejected one registered Bellatrix form. It stopped at 11/12
+prior-frozen composition positives; no new frozen prompt was evaluated.

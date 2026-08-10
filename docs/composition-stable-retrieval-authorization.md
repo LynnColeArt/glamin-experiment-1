@@ -3,9 +3,11 @@
 ## Status
 
 Protocol frozen on 2026-08-10 before implementation and before any prompt in
-the new frozen sets is evaluated. The previously observed conjunctive prompts
-are regression evidence only. They may not be used to select coordinates,
-thresholds, margins, widths, or prompt families.
+the new frozen sets was evaluated. Development passed, but the first and only
+prior-frozen regression run failed one positive. The experiment stopped at that
+gate; no new frozen prompt was evaluated. The previously observed conjunctive
+prompts remain regression evidence only and were not used to tune the failed
+configuration.
 
 ## Motivation
 
@@ -171,6 +173,46 @@ Failure stops the experiment. The configuration may not be tuned against a
 failed regression prompt; a materially revised approach requires a new
 preregistration.
 
+## Development and Regression Result
+
+Development selected width 64 for knownness and intent and width 128 for tuple
+compatibility. The calibrated values were:
+
+| Decision | Radius | Contrastive threshold |
+| --- | ---: | ---: |
+| Known entity | `1.13259` | `-0.673969` |
+| Tuple compatibility | `0.54578` | n/a |
+| Retrieval intent | `0.570829` | `0.486255` |
+
+The complete development preflight passed: 24/24 known positives, 16/16 unknown
+rejections, 24/24 compatibility positives, 120/120 cross-tuple rejections,
+24/24 intent positives, and 48/48 eligible negative exact no-ops.
+
+The binding prior-frozen regression result was:
+
+| Measurement | Result |
+| --- | ---: |
+| Local compatibility positives | 12/12 |
+| Local cross-tuple rejections | 60/60 |
+| Local intent positives | 12/12 |
+| Local negative exact no-ops | 36/36 |
+| Composition routes and rank-one targets | 11/12 |
+| Composition negative exact no-ops | 18/18 |
+| Older wrong-intent exact no-ops | 30/30 |
+| Missing-tuple exact no-ops | 4/4 |
+| Unknown-entity knownness rejections and no-ops | 4/4 |
+| Unknown-relation exact no-ops | 4/4 |
+
+The redesigned intent gate rejected the previously admitted Draco/color
+counterfactual, and the knownness veto rejected all four prior unknown-entity
+controls, including `ledger/Vega/color`. The sole failure remained
+`resolve[Bellatrix]{color}`: the knownness veto rejected Bellatrix, so no tuple
+or intent decision ran and the unmodified target remained at rank 3191.
+
+This is a stopped preflight result, not a new frozen evaluation. The
+configuration is retained unchanged and may not be tuned against the failed
+Bellatrix prompt.
+
 ## New Frozen Local Stage
 
 Two positive forms per tuple produce 12 requests:
@@ -249,8 +291,10 @@ or authority for external actions.
 
 ## Consequence
 
-Atomic persistence remains deferred unless every development, regression,
-local-frozen, and composition criterion passes. If they all pass, a subsequent
-protocol may persist and live-swap the entity space, relation space, knownness
-veto, tuple ledger, compatibility representation, contrastive intent
-representation, gates, and target states as one generation.
+Atomic persistence remains deferred. The result isolates a sharper boundary:
+contrastive intent repaired every prior intent regression, and knownness
+repaired the prior unknown-entity false acceptance, but the global knownness
+prototype traded that specificity for one known-entity false rejection. A
+materially different knownness representation requires a fresh preregistration;
+the untouched frozen local and composition sets in this document remain
+unevaluated.
