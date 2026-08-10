@@ -520,7 +520,8 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
    [Label-Conditioned Entity Knownness](docs/label-conditioned-entity-knownness.md).
 5. Repeat that mechanism with development unknown labels disjoint from all
    earlier corpora; the first protocol was invalidated before regression by an
-   Altair provenance collision.
+   Altair provenance collision. The clean frozen protocol is in
+   [Corpus-Disjoint Conditioned Knownness](docs/corpus-disjoint-conditioned-knownness.md).
 6. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
 7. Persist entity space, relation space, tuple membership, action variants,

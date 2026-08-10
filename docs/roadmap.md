@@ -97,7 +97,8 @@ A rollback reproduced the baseline logits exactly in the same process.
     before regression because Altair appeared in development and prior frozen
     controls; no new frozen prompt was evaluated.
   - [ ] Repeat label-conditioned verification with corpus-disjoint development
-    unknowns and the entire prior corpus as a binding regression gate.
+    unknowns and the entire prior corpus as a binding regression gate; clean
+    protocol frozen with width 32 fixed before implementation.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and
