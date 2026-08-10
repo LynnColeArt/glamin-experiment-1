@@ -3119,6 +3119,21 @@ int run(const std::string& model_path) {
                                     !memory.hook.action_accepted &&
                                     !memory.hook.applied && delta <= 1.0e-5F;
             conjunctive_composition_negative_noops += exact_noop ? 1U : 0U;
+            std::cout << "conjunctive_composition_negative=" << prompt.first
+                      << '/' << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " entity_accepted="
+                      << (memory.hook.entity.accepted ? "yes" : "no")
+                      << " relation_accepted="
+                      << (memory.hook.relation.accepted ? "yes" : "no")
+                      << " tuple_found="
+                      << (memory.hook.tuple_found ? "yes" : "no")
+                      << " compatibility_accepted="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent_accepted="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " applied=" << (memory.hook.applied ? "yes" : "no")
+                      << " max_logit_delta=" << delta << '\n';
         }
     }
 
@@ -3155,12 +3170,17 @@ int run(const std::string& model_path) {
             const auto memory = infer_with_target_state_memory(
                 model.get(), vocab, prompt.second, make_conjunctive_hook(),
                 target_states, target_tensor, action_tensor);
-            conjunctive_unknown_entity_noops +=
-                !memory.hook.entity.accepted && !memory.hook.applied &&
-                        maximum_logit_difference(
-                            baseline.logits, memory.logits) <= 1.0e-5F
-                    ? 1U
-                    : 0U;
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto exact_noop = !memory.hook.entity.accepted &&
+                                    !memory.hook.applied && delta <= 1.0e-5F;
+            conjunctive_unknown_entity_noops += exact_noop ? 1U : 0U;
+            std::cout << "conjunctive_unknown_entity=" << prompt.first << '/'
+                      << unknown << "/color"
+                      << " entity_accepted="
+                      << (memory.hook.entity.accepted ? "yes" : "no")
+                      << " applied=" << (memory.hook.applied ? "yes" : "no")
+                      << " max_logit_delta=" << delta << '\n';
         }
     }
 
