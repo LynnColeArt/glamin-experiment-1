@@ -564,6 +564,17 @@ float minimum_probe_distance(
     return minimum;
 }
 
+const std::vector<float>& association_key_for_probe(
+    const gx1::ActivationMemoryBuildResult& memory,
+    const std::size_t association) {
+    for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+        if (memory.key_associations[key] == association) {
+            return memory.keys[key];
+        }
+    }
+    throw std::invalid_argument("probe association has no key");
+}
+
 std::vector<float> nearest_factor_state_for_probe(
     const gx1::ActivationStateSequence& states,
     const std::size_t association,
@@ -2028,6 +2039,15 @@ int run(const std::string& model_path) {
                 positive.relation,
                 entity_address_association_memory,
                 relation_prototype_memory)};
+        const auto compatibility_distance = minimum_probe_distance(
+            compatibility_states,
+            association_key_for_probe(
+                tuple_compatibility_memory, positive.tuple),
+            tuple_compatibility_memory);
+        const auto intent_distance = probe_squared_distance(
+            project_normalized_for_probe(
+                positive.baseline.hidden_state, retrieval_intent_memory),
+            retrieval_intent_memory.keys.front());
         for (std::size_t key = 0;
              key < tuple_compatibility_memory.keys.size();
              ++key) {
@@ -2059,19 +2079,30 @@ int run(const std::string& model_path) {
                               memory.hook.relation.factor_label ==
                                   positive.relation;
         conjunctive_development_compatibility_accepts +=
-            eligible && memory.hook.compatibility_accepted ? 1U : 0U;
+            compatibility_distance <=
+                    tuple_compatibility_memory.maximum_distance
+                ? 1U
+                : 0U;
         conjunctive_development_intent_accepts +=
-            eligible && memory.hook.intent_accepted ? 1U : 0U;
+            intent_distance <= retrieval_intent_memory.maximum_distance
+                ? 1U
+                : 0U;
         std::cout << "conjunctive_development_positive=" << positive.name << '/'
                   << entities[positive.entity] << '/'
                   << relations[positive.relation]
                   << " compatibility_distance="
-                  << memory.hook.compatibility_distance
+                  << compatibility_distance
                   << " compatibility_accepted="
-                  << (memory.hook.compatibility_accepted ? "yes" : "no")
-                  << " intent_distance=" << memory.hook.intent_distance
+                  << (compatibility_distance <=
+                              tuple_compatibility_memory.maximum_distance
+                          ? "yes"
+                          : "no")
+                  << " intent_distance=" << intent_distance
                   << " intent_accepted="
-                  << (memory.hook.intent_accepted ? "yes" : "no") << '\n';
+                  << (intent_distance <= retrieval_intent_memory.maximum_distance
+                          ? "yes"
+                          : "no")
+                  << " full_path=" << (eligible ? "yes" : "no") << '\n';
     }
 
     std::size_t conjunctive_development_negative_reaches = 0U;
@@ -2855,6 +2886,15 @@ int run(const std::string& model_path) {
                     tuple.relation,
                     entity_address_association_memory,
                     relation_prototype_memory)};
+            const auto compatibility_distance = minimum_probe_distance(
+                compatibility_states,
+                association_key_for_probe(
+                    tuple_compatibility_memory, tuple_index),
+                tuple_compatibility_memory);
+            const auto intent_distance = probe_squared_distance(
+                project_normalized_for_probe(
+                    baseline.hidden_state, retrieval_intent_memory),
+                retrieval_intent_memory.keys.front());
             for (std::size_t key = 0;
                  key < tuple_compatibility_memory.keys.size();
                  ++key) {
@@ -2894,21 +2934,33 @@ int run(const std::string& model_path) {
                                   memory.hook.relation.factor_label ==
                                       tuple.relation;
             frozen_compatibility_accepts +=
-                eligible && memory.hook.compatibility_accepted ? 1U : 0U;
+                compatibility_distance <=
+                        tuple_compatibility_memory.maximum_distance
+                    ? 1U
+                    : 0U;
             frozen_intent_accepts +=
-                eligible && memory.hook.intent_accepted ? 1U : 0U;
+                intent_distance <= retrieval_intent_memory.maximum_distance
+                    ? 1U
+                    : 0U;
             frozen_single_gate_accepts +=
                 baseline_gate.hook.action_accepted ? 1U : 0U;
             std::cout << "conjunctive_frozen_positive=" << prompt.first << '/'
                       << entities[tuple.entity] << '/'
                       << relations[tuple.relation]
                       << " compatibility_distance="
-                      << memory.hook.compatibility_distance
+                      << compatibility_distance
                       << " compatibility_accepted="
-                      << (memory.hook.compatibility_accepted ? "yes" : "no")
-                      << " intent_distance=" << memory.hook.intent_distance
+                      << (compatibility_distance <=
+                                  tuple_compatibility_memory.maximum_distance
+                              ? "yes"
+                              : "no")
+                      << " intent_distance=" << intent_distance
                       << " intent_accepted="
-                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << (intent_distance <=
+                                  retrieval_intent_memory.maximum_distance
+                              ? "yes"
+                              : "no")
+                      << " full_path=" << (eligible ? "yes" : "no")
                       << " single_gate_accepted="
                       << (baseline_gate.hook.action_accepted ? "yes" : "no")
                       << '\n';
