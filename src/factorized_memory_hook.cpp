@@ -89,7 +89,7 @@ void validate_gate_config(
         config.prototype.size() != expected_width || !negative_width_valid ||
         !all_finite(config.prototype) ||
         !all_finite(config.negative_prototype) ||
-        !std::isfinite(config.minimum_margin) || config.minimum_margin < 0.0F ||
+        !std::isfinite(config.minimum_margin) ||
         (config.negative_prototype.empty() && config.minimum_margin != 0.0F)) {
         throw std::invalid_argument(description);
     }

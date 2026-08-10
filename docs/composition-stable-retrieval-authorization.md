@@ -48,9 +48,11 @@ Acceptance requires both a positive radius and a contrastive margin:
 d_known <= r_known && d_known + m_known <= d_unknown
 ```
 
-The radius and margin must strictly separate every development positive and
-unknown control. If no tested development width separates them, construction
-stops before regression or frozen evaluation.
+The radius and contrastive threshold must strictly separate every development
+positive and unknown control. The calibrated `m_known` may be signed because it
+is the midpoint between the hardest positive and negative distance-difference
+scores; no sign constraint was preregistered. If no tested development width
+separates the scores, construction stops before regression or frozen evaluation.
 
 ### Tuple compatibility
 
@@ -81,7 +83,9 @@ intent prototype, threshold, or margin is permitted.
 
 Widths may be selected from `64`, `128`, `256`, and `512` using development
 only. Thresholds and margins must be derived mechanically from the hardest
-development positive and nearest development negative with a nonzero gap.
+development positive and nearest development negative with a nonzero gap. A
+contrastive margin is a signed distance-difference threshold; its sign is not a
+success criterion.
 
 ## Development Preflight
 

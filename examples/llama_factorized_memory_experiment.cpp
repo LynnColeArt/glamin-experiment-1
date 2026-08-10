@@ -746,13 +746,17 @@ ContrastiveCalibration calibrate_contrastive_gate(
         result.maximum_negative_gap = std::max(
             result.maximum_negative_gap, gap(negative));
     }
-    const auto lower = std::max(0.0F, result.maximum_negative_gap);
-    if (!(lower < result.minimum_positive_gap)) {
+    if (!(result.maximum_negative_gap < result.minimum_positive_gap)) {
         throw std::runtime_error(
-            "contrastive prototype margins do not strictly separate");
+            "contrastive prototype margins do not strictly separate: "
+            "minimum positive gap " +
+            std::to_string(result.minimum_positive_gap) +
+            ", maximum negative gap " +
+            std::to_string(result.maximum_negative_gap));
     }
-    result.minimum_margin = lower +
-                            0.5F * (result.minimum_positive_gap - lower);
+    result.minimum_margin = result.maximum_negative_gap +
+                            0.5F * (result.minimum_positive_gap -
+                                    result.maximum_negative_gap);
     return result;
 }
 
