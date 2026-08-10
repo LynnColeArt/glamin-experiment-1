@@ -3691,6 +3691,49 @@ int run(const std::string& model_path) {
                         gx1::ActivationValidationScope::global,
                         gx1::ActivationKeyStrategy::association_centroid,
                     });
+                auto maximum_eligible_distance = 0.0F;
+                auto minimum_cross_distance =
+                    std::numeric_limits<float>::max();
+                const auto measure_compatibility = [&](
+                                                       const ConjunctiveProbeSpec&
+                                                           probe) {
+                    const gx1::ActivationStateSequence states{
+                        combined_factor_state_for_probe(
+                            probe.baseline,
+                            probe.entity,
+                            probe.relation,
+                            entity_address_association_memory,
+                            relation_prototype_memory)};
+                    for (std::size_t key = 0; key < memory.keys.size(); ++key) {
+                        const auto distance = minimum_probe_distance(
+                            states, memory.keys[key], memory);
+                        if (memory.key_associations[key] == probe.tuple) {
+                            maximum_eligible_distance = std::max(
+                                maximum_eligible_distance, distance);
+                        } else {
+                            minimum_cross_distance = std::min(
+                                minimum_cross_distance, distance);
+                        }
+                    }
+                };
+                for (const auto& positive :
+                     replication_development_positives) {
+                    measure_compatibility(positive);
+                }
+                for (const auto& negative :
+                     replication_development_negatives) {
+                    measure_compatibility(negative);
+                }
+                if (!(maximum_eligible_distance < minimum_cross_distance)) {
+                    throw std::runtime_error(
+                        "eligible and cross-tuple compatibility overlap");
+                }
+                memory.maximum_validation_distance =
+                    maximum_eligible_distance;
+                memory.minimum_negative_distance = minimum_cross_distance;
+                memory.maximum_distance = maximum_eligible_distance +
+                                          0.5F * (minimum_cross_distance -
+                                                  maximum_eligible_distance);
                 std::size_t positive_accepts = 0U;
                 std::size_t cross_rejections = 0U;
                 for (const auto& positive : replication_development_positives) {

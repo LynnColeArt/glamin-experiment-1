@@ -66,6 +66,13 @@ The selected tuple must own the nearest compatibility key within its calibrated
 radius. Every positive must also be rejected by all five non-selected tuple
 keys.
 
+Development clarified radius calibration before any prior-frozen or new frozen
+prompt was evaluated. Compatibility keys and projection coordinates remain
+positive-only. The radius is the midpoint between the hardest own-tuple distance
+across all 72 eligible development requests and the nearest wrong-tuple key.
+This uses wrong-intent requests only to require that they reach the intent gate;
+they do not contribute to a compatibility key or projection score.
+
 ### Contrastive retrieval intent
 
 The prior positive-radius intent gate is replaced by two tuple-independent
