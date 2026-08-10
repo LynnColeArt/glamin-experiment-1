@@ -305,4 +305,5 @@ failed. The next split should retain the successful entity and relation
 representations while separating tuple compatibility from retrieval intent and
 substantially expanding negative intent families. The complete contract should
 be persisted and live-swapped only after that authority boundary is measured
-independently.
+independently. That split is preregistered in
+[Conjunctive Retrieval Authorization](conjunctive-retrieval-authorization.md).

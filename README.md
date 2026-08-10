@@ -475,7 +475,8 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
    association-signal entity and centroid relation representations.
 2. Split authorization into tuple compatibility and an independently calibrated
    retrieval-intent decision; expand development and frozen wrong-intent
-   families before composing another gate.
+   families before composing another gate. The one-shot protocol is frozen in
+   [Conjunctive Retrieval Authorization](docs/conjunctive-retrieval-authorization.md).
 3. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
 4. Persist entity space, relation space, tuple membership, action variants,

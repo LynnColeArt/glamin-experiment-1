@@ -29,6 +29,9 @@
 - [Gate-local authorization invariance](gate-local-authorization-invariance.md)
   records the preregistered relation prototypes, contrastive action
   authorization, independent composition test, and frozen result.
+- [Conjunctive retrieval authorization](conjunctive-retrieval-authorization.md)
+  preregisters separate tuple-compatibility and retrieval-intent gates plus
+  their one-shot composed evaluation.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
