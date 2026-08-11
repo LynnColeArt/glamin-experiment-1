@@ -44,7 +44,11 @@ and rank-one targets. Both misses were Bellatrix/color: one selected Bellatrix
 but failed its verifier, while the other proposed Arcturus upstream and was
 correctly not repaired by the veto-only verifier. All 30 older wrong-intent
 controls and every missing/unknown-relation control remained no-ops. The
-experiment stopped before any new frozen prompt.
+experiment stopped before any new frozen prompt. A bounded joint top-two
+follow-up then placed the named entity in its candidate set on all 32 new
+development requests and rejected all 32 unknown controls exactly, but selected
+only 28/32 named entities. It stopped at development without opening the prior
+regression or any new frozen stage.
 
 ## Research questions
 
@@ -187,6 +191,7 @@ measurable. Model files are not included in this repository.
 | Composition-stability replication | Development passed all knownness, compatibility, and intent criteria; prior-frozen composition produced 11/12 rank-one targets | Repaired the prior counterfactual to 18/18 no-ops and unknown entities to 4/4; preserved 36/36 local and 30/30 older negative no-ops | Stopped at regression because knownness rejected one registered Bellatrix form; new frozen sets were never evaluated |
 | Label-conditioned entity knownness | First width passed 32/32 matches, 96/96 cross-label rejections, and 32/32 unknown exact no-ops | Candidate regression and every new frozen prompt remained unrun | Stopped on protocol provenance: development reused the prior frozen unknown label Altair |
 | Corpus-disjoint conditioned knownness | Fixed width 32 passed 32/32 matching accepts, 96/96 cross-label rejects, and 32/32 clean-unknown exact no-ops; prior composition reached 10/12 rank-one targets | Preserved 36/36 local and 30/30 older intent no-ops plus all missing and unknown-relation controls | Stopped after the one-shot regression missed two Bellatrix/color positives; new frozen prompts remained untouched |
+| Joint top-two entity selection | Named entity appeared in the top two on 32/32 development requests and was selected on 28/32 | Rejected 32/32 clean unknowns with exact no-ops | Stopped at development after the `memory-index` form produced four verifier rejections; prior regression and new frozen prompts remained untouched |
 
 ### Topology-aware action probe
 
@@ -526,14 +531,19 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
 6. Preserve its stopped one-shot result: label conditioning passed clean
    development but missed two Bellatrix/color prior positives, including one
    upstream association error that a veto-only verifier cannot repair.
-7. Hold later target-state action and every current wrong-intent,
+7. Preserve the stopped bounded joint candidate-state result: top-two coverage
+   reached 32/32 and unknown rejection reached 32/32, but joint verification
+   selected only 28/32 because all Bellatrix and Draco `memory-index` requests
+   were rejected. The frozen record is in
+   [Joint Top-K Entity Selection](docs/joint-top-k-entity-selection.md).
+8. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
-8. Persist entity space, relation space, tuple membership, action variants,
+9. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
-9. Add generation-A/generation-B behavioral baselines and geometry diffs.
-10. Measure larger memories, broader negatives, multi-token recall, and general
+10. Add generation-A/generation-B behavioral baselines and geometry diffs.
+11. Measure larger memories, broader negatives, multi-token recall, and general
    capability retention.
-11. Add durable trace segments and an immutable source ledger before considering
+12. Add durable trace segments and an immutable source ledger before considering
    procedural mini-apps or external capabilities.
 
 ## Citation

@@ -1,5 +1,6 @@
 #include "gx1/factorized_memory_hook.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -247,7 +248,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     std::optional<RetrievalIntentGateConfig> intent_config,
     const bool scan_action_candidates,
     std::optional<ContrastiveGateConfig> known_entity_config,
-    std::optional<LabelConditionedGateConfig> label_conditioned_entity_config)
+    std::optional<LabelConditionedGateConfig> label_conditioned_entity_config,
+    const std::size_t joint_entity_candidate_count)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -262,7 +264,8 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       scan_action_candidates_(scan_action_candidates),
       known_entity_config_(std::move(known_entity_config)),
       label_conditioned_entity_config_(
-          std::move(label_conditioned_entity_config)) {
+          std::move(label_conditioned_entity_config)),
+      joint_entity_candidate_count_(joint_entity_candidate_count) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
@@ -299,6 +302,33 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     if (known_entity_config_ && label_conditioned_entity_config_) {
         throw std::invalid_argument(
             "factorized memory has two entity-knownness gates");
+    }
+    if (joint_entity_candidate_count_ == 0U ||
+        (joint_entity_candidate_count_ > 1U &&
+         !label_conditioned_entity_config_)) {
+        throw std::invalid_argument(
+            "joint entity selection requires a label-conditioned gate");
+    }
+    if (joint_entity_candidate_count_ > 1U) {
+        if (!(entity_config_.maximum_distance > 0.0F) ||
+            entity_pin_.vector_count() >
+                std::numeric_limits<std::uint32_t>::max()) {
+            throw std::invalid_argument(
+                "joint entity selection has invalid search geometry");
+        }
+        for (const auto label : entity_labels_) {
+            const auto found = std::find_if(
+                label_conditioned_entity_config_->entries.begin(),
+                label_conditioned_entity_config_->entries.end(),
+                [label](const LabelConditionedGateEntry& entry) {
+                    return entry.label == label;
+                });
+            if (found == label_conditioned_entity_config_->entries.end() ||
+                !(found->maximum_distance > 0.0F)) {
+                throw std::invalid_argument(
+                    "joint entity selection has incomplete verifier geometry");
+            }
+        }
     }
     if (!std::isfinite(gate_) || !payloads_ ||
         !std::isfinite(maximum_action_distance_) || maximum_action_distance_ < 0.0F) {
@@ -365,8 +395,180 @@ FactorizedLayerMemoryHook::authorize_selection(
     }
 
     FactorizedMemoryResult result;
-    result.entity = nearest(
-        entity_pin_, entity_config_, entity_labels_, entity_states);
+    if (joint_entity_candidate_count_ > 1U) {
+        struct JointCandidate {
+            std::uint64_t label{0};
+            float best_distance{std::numeric_limits<float>::max()};
+            std::vector<float> state_distances;
+            std::vector<std::uint64_t> state_rows;
+            float joint_score{std::numeric_limits<float>::max()};
+            std::size_t state{0U};
+            bool eligible{false};
+            float positive_distance{0.0F};
+            float negative_distance{0.0F};
+            std::uint64_t nearest_verifier{0};
+        };
+
+        std::vector<JointCandidate> candidates;
+        for (const auto& entry : label_conditioned_entity_config_->entries) {
+            candidates.push_back(JointCandidate{
+                entry.label,
+                std::numeric_limits<float>::max(),
+                std::vector<float>(
+                    entity_states.size(), std::numeric_limits<float>::max()),
+                std::vector<std::uint64_t>(entity_states.size(), 0U),
+            });
+        }
+        const auto search_k =
+            static_cast<std::uint32_t>(entity_pin_.vector_count());
+        for (std::size_t state = 0; state < entity_states.size(); ++state) {
+            const auto query = project(entity_config_, entity_states[state]);
+            const auto search = entity_pin_.search(query, search_k);
+            if (search.query_count != 1U || search.k != search_k ||
+                search.labels.size() != search_k ||
+                search.distances.size() != search_k) {
+                throw std::runtime_error(
+                    "joint entity search returned an invalid result shape");
+            }
+            for (std::size_t rank = 0; rank < search.labels.size(); ++rank) {
+                const auto row = search.labels[rank];
+                if (row >= entity_labels_.size()) {
+                    throw std::runtime_error(
+                        "joint entity search returned an invalid row");
+                }
+                const auto label = entity_labels_[row];
+                const auto candidate = std::find_if(
+                    candidates.begin(),
+                    candidates.end(),
+                    [label](const JointCandidate& value) {
+                        return value.label == label;
+                    });
+                if (candidate == candidates.end()) {
+                    throw std::runtime_error(
+                        "joint entity search found a label without a verifier");
+                }
+                if (search.distances[rank] < candidate->state_distances[state]) {
+                    candidate->state_distances[state] = search.distances[rank];
+                    candidate->state_rows[state] = row;
+                    candidate->best_distance = std::min(
+                        candidate->best_distance, search.distances[rank]);
+                }
+            }
+        }
+        std::sort(
+            candidates.begin(),
+            candidates.end(),
+            [](const JointCandidate& left, const JointCandidate& right) {
+                if (left.best_distance == right.best_distance) {
+                    return left.label < right.label;
+                }
+                return left.best_distance < right.best_distance;
+            });
+        const auto candidate_count = std::min(
+            joint_entity_candidate_count_, candidates.size());
+        result.entity_candidate_labels.reserve(candidate_count);
+        result.entity_candidate_distances.reserve(candidate_count);
+        for (std::size_t index = 0; index < candidate_count; ++index) {
+            result.entity_candidate_labels.push_back(candidates[index].label);
+            result.entity_candidate_distances.push_back(
+                candidates[index].best_distance);
+            const auto entry = std::find_if(
+                label_conditioned_entity_config_->entries.begin(),
+                label_conditioned_entity_config_->entries.end(),
+                [&](const LabelConditionedGateEntry& value) {
+                    return value.label == candidates[index].label;
+                });
+            if (entry == label_conditioned_entity_config_->entries.end()) {
+                throw std::runtime_error(
+                    "joint entity candidate has no verifier entry");
+            }
+            for (std::size_t state = 0; state < entity_states.size(); ++state) {
+                const auto association_distance =
+                    candidates[index].state_distances[state];
+                if (!(association_distance <= entity_config_.maximum_distance)) {
+                    continue;
+                }
+                const auto known_query = project(
+                    label_conditioned_entity_config_->search,
+                    entity_states[state]);
+                const auto positive_distance = squared_distance(
+                    known_query, entry->positive_prototype);
+                const auto negative_distance = squared_distance(
+                    known_query, entry->negative_prototype);
+                auto nearest_verifier_distance =
+                    std::numeric_limits<float>::max();
+                std::uint64_t nearest_verifier = 0U;
+                for (const auto& verifier :
+                     label_conditioned_entity_config_->entries) {
+                    const auto distance = squared_distance(
+                        known_query, verifier.positive_prototype);
+                    if (distance < nearest_verifier_distance) {
+                        nearest_verifier_distance = distance;
+                        nearest_verifier = verifier.label;
+                    }
+                }
+                const auto verification_accepted =
+                    positive_distance <= entry->maximum_distance &&
+                    positive_distance + entry->minimum_margin <=
+                        negative_distance &&
+                    nearest_verifier == candidates[index].label;
+                if (!verification_accepted) {
+                    continue;
+                }
+                const auto joint_score =
+                    association_distance / entity_config_.maximum_distance +
+                    positive_distance / entry->maximum_distance;
+                if (!std::isfinite(joint_score)) {
+                    throw std::runtime_error(
+                        "joint entity score is non-finite");
+                }
+                if (!candidates[index].eligible ||
+                    joint_score < candidates[index].joint_score) {
+                    candidates[index].eligible = true;
+                    candidates[index].joint_score = joint_score;
+                    candidates[index].state = state;
+                    candidates[index].positive_distance = positive_distance;
+                    candidates[index].negative_distance = negative_distance;
+                    candidates[index].nearest_verifier = nearest_verifier;
+                }
+            }
+        }
+
+        const JointCandidate* selected = nullptr;
+        auto tied = false;
+        for (std::size_t index = 0; index < candidate_count; ++index) {
+            if (!candidates[index].eligible) {
+                continue;
+            }
+            if (selected == nullptr ||
+                candidates[index].joint_score < selected->joint_score) {
+                selected = &candidates[index];
+                tied = false;
+            } else if (candidates[index].joint_score == selected->joint_score) {
+                tied = true;
+            }
+        }
+        result.entity.generation = entity_pin_.id();
+        result.known_entity_accepted = selected != nullptr && !tied;
+        if (result.known_entity_accepted) {
+            result.entity.memory_label =
+                selected->state_rows[selected->state];
+            result.entity.factor_label = selected->label;
+            result.entity.distance =
+                selected->state_distances[selected->state];
+            result.entity.accepted = true;
+            result.entity.address_candidate = selected->state;
+            result.known_entity_distance = selected->positive_distance;
+            result.unknown_entity_distance = selected->negative_distance;
+            result.known_entity_verifier_label = selected->label;
+            result.nearest_known_entity_label = selected->nearest_verifier;
+            result.known_entity_identity_consistent = true;
+            result.entity_joint_score = selected->joint_score;
+        }
+    } else {
+        result.entity = nearest(
+            entity_pin_, entity_config_, entity_labels_, entity_states);
+    }
     result.relation = nearest(
         relation_pin_, relation_config_, relation_labels_, relation_states);
     if (!result.entity.accepted) {
@@ -396,7 +598,8 @@ FactorizedLayerMemoryHook::authorize_selection(
         }
         result.known_entity_accepted = radius_accepted && margin_accepted;
     }
-    if (label_conditioned_entity_config_) {
+    if (label_conditioned_entity_config_ &&
+        joint_entity_candidate_count_ == 1U) {
         if (result.entity.address_candidate >= entity_states.size()) {
             throw std::runtime_error(
                 "factor evidence selected an unavailable knownness state");

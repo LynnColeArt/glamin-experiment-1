@@ -578,6 +578,25 @@ conditioned_knownness_development_prompts(
     };
 }
 
+std::vector<std::pair<std::string, std::string>>
+joint_entity_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"load-cell",
+         "Load the " + relation + " cell belonging to " + entity +
+             ".\nCell:"},
+        {"memory-index",
+         "memory_index[" + entity + "].read(" + relation + ") ->"},
+        {"archived-field",
+         "Return " + entity + "'s archived " + relation +
+             " field.\nArchive value:"},
+        {"record-owner",
+         "Query record owner " + entity + " for attribute " + relation +
+             ".\nResult:"},
+    };
+}
+
 std::vector<float> project_normalized_for_probe(
     const std::vector<float>& state,
     const gx1::ActivationMemoryBuildResult& memory) {
@@ -4964,9 +4983,177 @@ int run(const std::string& model_path) {
             conditioned_prior_unknown_entity_count &&
         conditioned_prior_unknown_relation_noops ==
             conditioned_prior_unknown_relation_count;
-    if (!conditioned_prior_frozen_passed) {
+    const auto historical_conditioned_regression_reproduced =
+        !conditioned_prior_frozen_passed &&
+        prior_local_compatibility_accepts == prior_local_positive_count &&
+        prior_local_cross_rejections == prior_local_cross_count &&
+        prior_local_intent_accepts == prior_local_positive_count &&
+        conditioned_prior_local_negative_noops ==
+            prior_local_negative_count &&
+        conditioned_prior_composition_routes == 10U &&
+        conditioned_prior_composition_recall == 10U &&
+        conditioned_prior_composition_negative_noops == 17U &&
+        conditioned_prior_wrong_intent_noops ==
+            conditioned_prior_wrong_intent_count &&
+        conditioned_prior_missing_noops == conditioned_prior_missing_count &&
+        conditioned_prior_unknown_entity_noops == 1U &&
+        conditioned_prior_unknown_relation_noops ==
+            conditioned_prior_unknown_relation_count;
+    if (!historical_conditioned_regression_reproduced) {
         throw std::runtime_error(
-            "corpus-disjoint conditioned knownness failed prior-frozen regression");
+            "historical corpus-disjoint conditioned result changed");
+    }
+
+    const auto make_joint_entity_hook = [&]() {
+        generations.activate(entity_address_association_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(relation_prototype_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(entity_address_association_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(relation_prototype_memory),
+            relation_prototype_labels,
+            1.0F,
+            replication_payloads,
+            replication_compatibility_memory.maximum_distance,
+            factor_config(replication_compatibility_memory),
+            gx1::RetrievalIntentGateConfig{
+                factor_config(replication_intent_memory),
+                replication_intent_memory.keys.front(),
+                replication_intent_calibration.negative_prototype,
+                replication_intent_calibration.minimum_margin,
+            },
+            true,
+            std::nullopt,
+            gx1::LabelConditionedGateConfig{
+                factor_config(conditioned_memory), conditioned_entries},
+            2U);
+    };
+
+    std::size_t joint_development_top_two = 0U;
+    std::size_t joint_development_selected = 0U;
+    std::size_t joint_development_finite = 0U;
+    std::size_t joint_development_known_count = 0U;
+    for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : joint_entity_development_prompts(
+                     entities[entity], relation)) {
+                ++joint_development_known_count;
+                const auto memory = infer_with_target_state_memory(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    make_joint_entity_hook(),
+                    target_states,
+                    target_tensor,
+                    action_tensor);
+                const auto in_top_two = std::find(
+                    memory.hook.entity_candidate_labels.begin(),
+                    memory.hook.entity_candidate_labels.end(),
+                    entity) != memory.hook.entity_candidate_labels.end();
+                const auto selected = memory.hook.entity.accepted &&
+                                      memory.hook.known_entity_accepted &&
+                                      memory.hook.entity.factor_label == entity;
+                const auto finite =
+                    memory.hook.entity_candidate_labels.size() == 2U &&
+                    memory.hook.entity_candidate_distances.size() == 2U &&
+                    std::all_of(
+                        memory.hook.entity_candidate_distances.begin(),
+                        memory.hook.entity_candidate_distances.end(),
+                        [](const float value) { return std::isfinite(value); }) &&
+                    std::isfinite(memory.hook.entity_joint_score) &&
+                    std::isfinite(memory.hook.known_entity_distance) &&
+                    std::isfinite(memory.hook.unknown_entity_distance);
+                joint_development_top_two += in_top_two ? 1U : 0U;
+                joint_development_selected += selected ? 1U : 0U;
+                joint_development_finite += finite ? 1U : 0U;
+                std::cout << "joint_development_known=" << prompt.first << '/'
+                          << entities[entity] << '/' << relation
+                          << " top_two=" << (in_top_two ? "yes" : "no")
+                          << " selected=" << (selected ? "yes" : "no")
+                          << " selected_label="
+                          << memory.hook.entity.factor_label
+                          << " joint_score=" << memory.hook.entity_joint_score
+                          << '\n';
+            }
+        }
+    }
+
+    std::size_t joint_development_unknown_rejections = 0U;
+    std::size_t joint_development_unknown_noops = 0U;
+    std::size_t joint_development_unknown_finite = 0U;
+    std::size_t joint_development_unknown_count = 0U;
+    for (const auto& unknown : {std::string("Pollux"), std::string("Castor"),
+                                std::string("Alpheratz"),
+                                std::string("Mirfak")}) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : joint_entity_development_prompts(
+                     unknown, relation)) {
+                ++joint_development_unknown_count;
+                const auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                const auto memory = infer_with_target_state_memory(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    make_joint_entity_hook(),
+                    target_states,
+                    target_tensor,
+                    action_tensor);
+                const auto rejected = !memory.hook.entity.accepted &&
+                                      !memory.hook.known_entity_accepted;
+                const auto exact_noop = rejected && !memory.hook.applied &&
+                                        maximum_logit_difference(
+                                            baseline.logits,
+                                            memory.logits) <= 1.0e-5F;
+                const auto finite =
+                    memory.hook.entity_candidate_labels.size() == 2U &&
+                    memory.hook.entity_candidate_distances.size() == 2U &&
+                    std::all_of(
+                        memory.hook.entity_candidate_distances.begin(),
+                        memory.hook.entity_candidate_distances.end(),
+                        [](const float value) { return std::isfinite(value); });
+                joint_development_unknown_rejections += rejected ? 1U : 0U;
+                joint_development_unknown_noops += exact_noop ? 1U : 0U;
+                joint_development_unknown_finite += finite ? 1U : 0U;
+            }
+        }
+    }
+
+    std::cout << "joint_development_summary=top_two "
+              << joint_development_top_two << '/'
+              << joint_development_known_count << " selected "
+              << joint_development_selected << '/'
+              << joint_development_known_count << " known_finite "
+              << joint_development_finite << '/'
+              << joint_development_known_count << " unknown_rejections "
+              << joint_development_unknown_rejections << '/'
+              << joint_development_unknown_count << " unknown_noops "
+              << joint_development_unknown_noops << '/'
+              << joint_development_unknown_count << " unknown_finite "
+              << joint_development_unknown_finite << '/'
+              << joint_development_unknown_count << '\n';
+    if (joint_development_top_two != joint_development_known_count ||
+        joint_development_selected != joint_development_known_count ||
+        joint_development_finite != joint_development_known_count ||
+        joint_development_unknown_rejections !=
+            joint_development_unknown_count ||
+        joint_development_unknown_noops != joint_development_unknown_count ||
+        joint_development_unknown_finite !=
+            joint_development_unknown_count ||
+        conditioned_association_matches != 32U ||
+        conditioned_unknown_noops != 32U ||
+        replication_negative_noops !=
+            replication_development_negatives.size()) {
+        throw std::runtime_error(
+            "joint top-k entity selection failed development preflight");
     }
 
     std::cout << "stored_tuples=" << tuples.size()
