@@ -8,7 +8,9 @@ repository-wide provenance search found no occurrence of the development
 unknown labels `Pollux`, `Castor`, `Alpheratz`, or `Mirfak`. All prompts and
 labels observed by prior experiments remain regression-only. The frozen unknown
 labels `Rasalhague`, `Merak`, `Nunki`, and `Schedar` were also absent at the base
-commit.
+commit. The sealed development preflight later reached 32/32 correct top-two
+inclusions but only 28/32 correct selections. It stopped before the prior-frozen
+regression and before every new frozen prompt.
 
 ## Motivation
 
@@ -93,6 +95,31 @@ The candidate count, scoring equation, thresholds, prompt text, substitutions,
 counts, and criteria may not change after this document is committed.
 Implementation defects may be repaired using only this development split. A
 development failure stops the experiment.
+
+## Development Result
+
+The implementation was sealed at commit `5ff8b48` and failed the conjunctive
+development criterion:
+
+| Measurement | Result |
+| --- | ---: |
+| Named label included in top two | 32/32 |
+| Named label selected and verified | 28/32 |
+| Known-request diagnostics finite | 32/32 |
+| Unknown requests rejected | 32/32 |
+| Unknown end-to-end exact no-ops | 32/32 |
+| Unknown-request diagnostics finite | 32/32 |
+
+All four misses used the `memory-index` form. Bellatrix/color,
+Bellatrix/material, Draco/color, and Draco/material each included the named
+label in the association top two, but no candidate state satisfied the joint
+association and verifier conditions. Their selector therefore rejected with no
+eligible joint score rather than substituting another label.
+
+This is a development failure, not a regression or frozen result. Per the
+frozen protocol, candidate count, scoring, thresholds, and prompts were not
+tuned after observing it. The prior-frozen regression, untouched local frozen
+stage, and untouched composition stage were never evaluated.
 
 ## Prior-Frozen Regression Gate
 

@@ -43,7 +43,8 @@
   one-shot regression missed two Bellatrix/color positives.
 - [Joint top-k entity selection](joint-top-k-entity-selection.md) preregisters a
   bounded two-label selector that jointly searches association and verifier
-  evidence before committing to an entity.
+  evidence before committing to an entity; it reached 32/32 top-two coverage
+  but stopped at 28/32 selections in development.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -107,3 +108,8 @@ one-shot prior regression reached only 10/12 positives. It stopped before any
 new frozen evaluation.
 The next protocol tests whether jointly evaluating two association labels and
 their token states can repair that recall boundary without weakening any gate.
+It placed every named entity in the top two and rejected all 32 unknown controls
+with exact no-ops, but selected only 28/32 named entities. All four failures
+were Bellatrix or Draco requests in the `memory-index` form. The protocol
+therefore stopped in development before prior regression or new frozen
+evaluation.

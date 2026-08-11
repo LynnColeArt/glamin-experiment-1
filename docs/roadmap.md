@@ -100,9 +100,10 @@ A rollback reproduced the baseline logits exactly in the same process.
     unknowns and the entire prior corpus as a binding regression gate:
     development passed, but the one-shot regression missed two Bellatrix/color
     positives and stopped before new frozen evaluation.
-  - [ ] Test joint top-two entity and token-state selection with the complete
-    stopped corpus as a binding regression gate; protocol frozen before
-    implementation and before all new development and frozen prompts.
+  - [x] Test joint top-two entity and token-state selection with the complete
+    stopped corpus as a binding regression gate: development reached 32/32
+    top-two inclusion and 32/32 unknown exact no-ops, but only 28/32 correct
+    selections, so it stopped before regression and every new frozen prompt.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

@@ -332,3 +332,12 @@ only 10/12 positive routes and rank-one targets. Both misses were
 Bellatrix/color: one failed its matching verifier and one was proposed as
 Arcturus by upstream association addressing. The experiment stopped before any
 new frozen prompt.
+
+A bounded joint-selection follow-up retained the same verifier and searched the
+two best distinct association labels across all token states before committing.
+On its new development split, the named entity appeared in the top two for
+32/32 requests and all 32 unknown entities were rejected with exact no-ops.
+Joint verification selected only 28/32, however: both relations for Bellatrix
+and Draco failed on the `memory-index` form because no candidate state was
+eligible. The experiment stopped at development, leaving the full prior corpus
+and every new frozen prompt unevaluated.
