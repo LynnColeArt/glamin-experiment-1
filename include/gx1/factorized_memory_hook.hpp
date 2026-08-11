@@ -64,6 +64,9 @@ struct FactorizedMemoryResult {
     float unknown_entity_distance{0.0F};
     std::uint64_t known_entity_verifier_label{0};
     std::uint64_t nearest_known_entity_label{0};
+    std::vector<std::uint64_t> entity_candidate_labels;
+    std::vector<float> entity_candidate_distances;
+    float entity_joint_score{std::numeric_limits<float>::max()};
     std::size_t action_variant{0};
     bool tuple_found{false};
     bool known_entity_accepted{true};
@@ -141,7 +144,8 @@ public:
         bool scan_action_candidates = false,
         std::optional<ContrastiveGateConfig> known_entity_config = std::nullopt,
         std::optional<LabelConditionedGateConfig>
-            label_conditioned_entity_config = std::nullopt);
+            label_conditioned_entity_config = std::nullopt,
+        std::size_t joint_entity_candidate_count = 1U);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -196,6 +200,7 @@ private:
     bool scan_action_candidates_{false};
     std::optional<ContrastiveGateConfig> known_entity_config_;
     std::optional<LabelConditionedGateConfig> label_conditioned_entity_config_;
+    std::size_t joint_entity_candidate_count_{1U};
 };
 
 } // namespace gx1

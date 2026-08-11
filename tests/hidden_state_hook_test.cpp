@@ -598,6 +598,78 @@ void test_label_conditioned_entity_gate_confirms_selected_identity() {
            "label-conditioned entity radius admitted unknown evidence");
 }
 
+void test_joint_entity_selection_can_choose_second_association_label() {
+    gx1::GlaminRuntime runtime(1);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "joint-entities", 1, {0.0F, 1.0F});
+    const auto relation_generation = generations.mount_flat(
+        "joint-relations", 1, {1.0F});
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    const gx1::FactorSearchConfig factor_config{
+        2,
+        1,
+        {1.0F, 0.0F},
+        gx1::ProjectionNormalization::none,
+        1.0F,
+    };
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    payloads->insert(11U, 20U, {0.0F, 1.0F});
+    gx1::FactorizedLayerMemoryHook hook(
+        std::move(entity_pin),
+        factor_config,
+        {10U, 11U},
+        std::move(relation_pin),
+        factor_config,
+        {20U},
+        1.0F,
+        payloads,
+        std::numeric_limits<float>::max(),
+        std::nullopt,
+        std::nullopt,
+        false,
+        std::nullopt,
+        gx1::LabelConditionedGateConfig{
+            gx1::FactorSearchConfig{
+                2,
+                1,
+                {0.0F, 1.0F},
+                gx1::ProjectionNormalization::none,
+                std::numeric_limits<float>::max(),
+            },
+            {
+                {10U, {0.0F}, {10.0F}, 1.0F, 1.0F},
+                {11U, {10.0F}, {0.0F}, 1.0F, 1.0F},
+            },
+        },
+        2U);
+
+    const auto rescued = hook.authorize_nearest(
+        {{0.1F, 10.0F}}, {{1.0F, 0.0F}}, {1.0F, 1.0F});
+    expect(rescued.entity.accepted && rescued.known_entity_accepted &&
+               rescued.entity.factor_label == 11U &&
+               rescued.known_entity_verifier_label == 11U &&
+               rescued.nearest_known_entity_label == 11U &&
+               rescued.entity_candidate_labels ==
+                   std::vector<std::uint64_t>({10U, 11U}) &&
+               rescued.entity_candidate_distances.size() == 2U &&
+               rescued.entity_joint_score <
+                   std::numeric_limits<float>::max() &&
+               rescued.tuple_found && rescued.action_accepted,
+           "joint entity selection did not rescue the verified second label");
+
+    const auto unknown = hook.authorize_nearest(
+        {{0.1F, 5.0F}}, {{1.0F, 0.0F}}, {1.0F, 1.0F});
+    expect(!unknown.entity.accepted && !unknown.known_entity_accepted &&
+               !unknown.tuple_found && !unknown.action_accepted &&
+               unknown.entity_candidate_labels.size() == 2U,
+           "joint entity selection admitted an unverified candidate");
+}
+
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(
         gx1::sha256_text("abc") ==
@@ -719,6 +791,7 @@ int main() {
         test_factorized_tuple_join_and_abstention();
         test_factorized_authorization_conjoins_compatibility_and_intent();
         test_label_conditioned_entity_gate_confirms_selected_identity();
+        test_joint_entity_selection_can_choose_second_association_label();
         test_persistent_hook_artifact_atomic_activation_and_corruption();
         std::cout << "hidden-state Glamin hook tests passed\n";
         return EXIT_SUCCESS;
