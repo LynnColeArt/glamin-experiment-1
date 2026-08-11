@@ -41,6 +41,9 @@
 - [Corpus-disjoint conditioned knownness](corpus-disjoint-conditioned-knownness.md)
   records a clean replication whose fixed width passed development but whose
   one-shot regression missed two Bellatrix/color positives.
+- [Joint top-k entity selection](joint-top-k-entity-selection.md) preregisters a
+  bounded two-label selector that jointly searches association and verifier
+  evidence before committing to an entity.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -102,3 +105,5 @@ The clean follow-up freezes width 32 and substitutes four labels absent from all
 earlier corpora. Its development preflight passed every criterion, but its
 one-shot prior regression reached only 10/12 positives. It stopped before any
 new frozen evaluation.
+The next protocol tests whether jointly evaluating two association labels and
+their token states can repair that recall boundary without weakening any gate.

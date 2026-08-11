@@ -526,14 +526,17 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
 6. Preserve its stopped one-shot result: label conditioning passed clean
    development but missed two Bellatrix/color prior positives, including one
    upstream association error that a veto-only verifier cannot repair.
-7. Hold later target-state action and every current wrong-intent,
+7. Test bounded joint candidate-state selection without changing verifier,
+   compatibility, intent, or action thresholds. The frozen protocol is in
+   [Joint Top-K Entity Selection](docs/joint-top-k-entity-selection.md).
+8. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
-8. Persist entity space, relation space, tuple membership, action variants,
+9. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
-9. Add generation-A/generation-B behavioral baselines and geometry diffs.
-10. Measure larger memories, broader negatives, multi-token recall, and general
+10. Add generation-A/generation-B behavioral baselines and geometry diffs.
+11. Measure larger memories, broader negatives, multi-token recall, and general
    capability retention.
-11. Add durable trace segments and an immutable source ledger before considering
+12. Add durable trace segments and an immutable source ledger before considering
    procedural mini-apps or external capabilities.
 
 ## Citation
