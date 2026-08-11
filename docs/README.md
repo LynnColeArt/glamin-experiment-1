@@ -38,6 +38,9 @@
 - [Label-conditioned entity knownness](label-conditioned-entity-knownness.md)
   records a materially different verifier whose development passed but whose
   protocol stopped before regression on an Altair corpus-provenance collision.
+- [Corpus-disjoint conditioned knownness](corpus-disjoint-conditioned-knownness.md)
+  records a clean replication whose fixed width passed development but whose
+  one-shot regression missed two Bellatrix/color positives.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -95,3 +98,7 @@ The next protocol changed only knownness representation, assigning each label
 its own positive and matched-negative prototypes under a shared projection. It
 passed development, then stopped before candidate regression when provenance
 review found that development had reused the frozen unknown label Altair.
+The clean follow-up freezes width 32 and substitutes four labels absent from all
+earlier corpora. Its development preflight passed every criterion, but its
+one-shot prior regression reached only 10/12 positives. It stopped before any
+new frozen evaluation.

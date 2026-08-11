@@ -4383,8 +4383,8 @@ int run(const std::string& model_path) {
     std::vector<UnknownEntityProbeSpec> conditioned_unknown_probes;
     std::vector<std::pair<std::size_t, std::vector<float>>>
         conditioned_unknown_selections;
-    for (const auto& unknown : {std::string("Altair"), std::string("Mizar"),
-                                std::string("Rigel"), std::string("Spica")}) {
+    for (const auto& unknown : {std::string("Canopus"), std::string("Achernar"),
+                                std::string("Hadar"), std::string("Acrux")}) {
         for (const auto& relation : relations) {
             for (const auto& prompt : conditioned_knownness_development_prompts(
                      unknown, relation)) {
@@ -4438,7 +4438,7 @@ int run(const std::string& model_path) {
         -> std::pair<gx1::ActivationMemoryBuildResult,
                      std::vector<gx1::LabelConditionedGateEntry>> {
         build_stage("label-conditioned-knownness");
-        for (const auto width : {32U, 64U, 128U, 256U, 512U}) {
+        for (const auto width : {32U}) {
             try {
                 auto memory = gx1::ActivationMemoryBuilder::build(
                     conditioned_construction,
@@ -4666,6 +4666,307 @@ int run(const std::string& model_path) {
         conditioned_unknown_noops != 32U) {
         throw std::runtime_error(
             "label-conditioned knownness failed development preflight");
+    }
+
+    std::size_t conditioned_prior_local_negative_noops = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_frozen_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    memory.hook.known_entity_accepted &&
+                                    memory.hook.relation.accepted &&
+                                    memory.hook.tuple_found &&
+                                    memory.hook.compatibility_accepted &&
+                                    !memory.hook.intent_accepted &&
+                                    !memory.hook.action_accepted &&
+                                    !memory.hook.applied &&
+                                    maximum_logit_difference(
+                                        baseline.logits,
+                                        memory.logits) <= 1.0e-5F;
+            conditioned_prior_local_negative_noops += exact_noop ? 1U : 0U;
+        }
+    }
+
+    std::size_t conditioned_prior_composition_routes = 0U;
+    std::size_t conditioned_prior_composition_recall = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_composition_positive_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto routed = memory.hook.applied &&
+                                memory.hook.known_entity_accepted &&
+                                memory.hook.known_entity_identity_consistent &&
+                                memory.hook.compatibility_accepted &&
+                                memory.hook.intent_accepted &&
+                                memory.hook.entity.factor_label == tuple.entity &&
+                                memory.hook.relation.factor_label == tuple.relation;
+            const auto rank = token_rank(memory.logits, tuple.target_token);
+            conditioned_prior_composition_routes += routed ? 1U : 0U;
+            conditioned_prior_composition_recall +=
+                routed && rank == 1U ? 1U : 0U;
+            std::cout << "conditioned_prior_positive=" << prompt.first << '/'
+                      << entities[tuple.entity] << '/'
+                      << relations[tuple.relation]
+                      << " verifier="
+                      << memory.hook.known_entity_verifier_label
+                      << " nearest_verifier="
+                      << memory.hook.nearest_known_entity_label
+                      << " known_entity="
+                      << (memory.hook.known_entity_accepted ? "yes" : "no")
+                      << " compatibility="
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << " intent="
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << " routed=" << (routed ? "yes" : "no")
+                      << " rank=" << rank << '\n';
+        }
+    }
+
+    std::size_t conditioned_prior_composition_negative_noops = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : conjunctive_composition_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    memory.hook.known_entity_accepted &&
+                                    memory.hook.relation.accepted &&
+                                    memory.hook.tuple_found &&
+                                    memory.hook.compatibility_accepted &&
+                                    !memory.hook.intent_accepted &&
+                                    !memory.hook.action_accepted &&
+                                    !memory.hook.applied &&
+                                    maximum_logit_difference(
+                                        baseline.logits,
+                                        memory.logits) <= 1.0e-5F;
+            conditioned_prior_composition_negative_noops +=
+                exact_noop ? 1U : 0U;
+        }
+    }
+
+    std::size_t conditioned_prior_wrong_intent_noops = 0U;
+    std::size_t conditioned_prior_wrong_intent_count = 0U;
+    const auto check_conditioned_prior_wrong_intent =
+        [&](const std::string& prompt, const InferenceResult& baseline) {
+            ++conditioned_prior_wrong_intent_count;
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            conditioned_prior_wrong_intent_noops +=
+                !memory.hook.action_accepted && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        };
+    for (const auto& negative : wrong_intents) {
+        check_conditioned_prior_wrong_intent(
+            negative.prompt, negative.baseline);
+    }
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : authorization_evaluation_negatives(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            check_conditioned_prior_wrong_intent(prompt.second, baseline);
+        }
+        const auto prompt = gate_composition_negative_prompt(
+            entities[tuple.entity], relations[tuple.relation]);
+        const auto baseline = capture(
+            model.get(), vocab, prompt, hidden_dimension, target_tensor);
+        check_conditioned_prior_wrong_intent(prompt, baseline);
+    }
+
+    std::size_t conditioned_prior_missing_noops = 0U;
+    std::size_t conditioned_prior_missing_count = 0U;
+    for (const auto& missing : {std::pair<std::size_t, std::size_t>{1U, 1U},
+                                std::pair<std::size_t, std::size_t>{2U, 0U}}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 entities[missing.first], relations[missing.second])) {
+            ++conditioned_prior_missing_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            conditioned_prior_missing_noops +=
+                memory.hook.entity.accepted &&
+                        memory.hook.known_entity_accepted &&
+                        memory.hook.relation.accepted &&
+                        !memory.hook.tuple_found && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::size_t conditioned_prior_unknown_entity_noops = 0U;
+    std::size_t conditioned_prior_unknown_entity_count = 0U;
+    for (const auto& unknown : {std::string("Vega"), std::string("Altair")}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 unknown, "color")) {
+            ++conditioned_prior_unknown_entity_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto exact_noop = memory.hook.entity.accepted &&
+                                    !memory.hook.known_entity_accepted &&
+                                    !memory.hook.tuple_found &&
+                                    !memory.hook.applied &&
+                                    maximum_logit_difference(
+                                        baseline.logits,
+                                        memory.logits) <= 1.0e-5F;
+            conditioned_prior_unknown_entity_noops += exact_noop ? 1U : 0U;
+            std::cout << "conditioned_prior_unknown_entity=" << prompt.first
+                      << '/' << unknown << "/color"
+                      << " verifier="
+                      << memory.hook.known_entity_verifier_label
+                      << " nearest_verifier="
+                      << memory.hook.nearest_known_entity_label
+                      << " known_entity="
+                      << (memory.hook.known_entity_accepted ? "yes" : "no")
+                      << " applied="
+                      << (memory.hook.applied ? "yes" : "no") << '\n';
+        }
+    }
+
+    std::size_t conditioned_prior_unknown_relation_noops = 0U;
+    std::size_t conditioned_prior_unknown_relation_count = 0U;
+    for (const auto& unknown : {std::string("weight"), std::string("origin")}) {
+        for (const auto& prompt : gate_composition_evaluation_prompts(
+                 "Arcturus", unknown)) {
+            ++conditioned_prior_unknown_relation_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_conditioned_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            conditioned_prior_unknown_relation_noops +=
+                memory.hook.entity.accepted &&
+                        memory.hook.known_entity_accepted &&
+                        !memory.hook.relation.accepted && !memory.hook.applied &&
+                        maximum_logit_difference(
+                            baseline.logits, memory.logits) <= 1.0e-5F
+                    ? 1U
+                    : 0U;
+        }
+    }
+
+    std::cout
+        << "conditioned_prior_frozen_summary=local_compatibility "
+        << prior_local_compatibility_accepts << '/'
+        << prior_local_positive_count << " local_cross_rejections "
+        << prior_local_cross_rejections << '/' << prior_local_cross_count
+        << " local_intent_positive " << prior_local_intent_accepts << '/'
+        << prior_local_positive_count << " local_negative_noops "
+        << conditioned_prior_local_negative_noops << '/'
+        << prior_local_negative_count << " composition_routes "
+        << conditioned_prior_composition_routes << '/'
+        << prior_composition_count << " composition_rank_one "
+        << conditioned_prior_composition_recall << '/'
+        << prior_composition_count << " composition_negative_noops "
+        << conditioned_prior_composition_negative_noops << '/'
+        << prior_composition_negative_count << " older_negative_noops "
+        << conditioned_prior_wrong_intent_noops << '/'
+        << conditioned_prior_wrong_intent_count << " missing_noops "
+        << conditioned_prior_missing_noops << '/'
+        << conditioned_prior_missing_count << " unknown_entity_noops "
+        << conditioned_prior_unknown_entity_noops << '/'
+        << conditioned_prior_unknown_entity_count << " unknown_relation_noops "
+        << conditioned_prior_unknown_relation_noops << '/'
+        << conditioned_prior_unknown_relation_count << '\n';
+    const auto conditioned_prior_frozen_passed =
+        prior_local_compatibility_accepts == prior_local_positive_count &&
+        prior_local_cross_rejections == prior_local_cross_count &&
+        prior_local_intent_accepts == prior_local_positive_count &&
+        conditioned_prior_local_negative_noops ==
+            prior_local_negative_count &&
+        conditioned_prior_composition_routes == prior_composition_count &&
+        conditioned_prior_composition_recall == prior_composition_count &&
+        conditioned_prior_composition_negative_noops ==
+            prior_composition_negative_count &&
+        conditioned_prior_wrong_intent_noops ==
+            conditioned_prior_wrong_intent_count &&
+        conditioned_prior_missing_noops == conditioned_prior_missing_count &&
+        conditioned_prior_unknown_entity_noops ==
+            conditioned_prior_unknown_entity_count &&
+        conditioned_prior_unknown_relation_noops ==
+            conditioned_prior_unknown_relation_count;
+    if (!conditioned_prior_frozen_passed) {
+        throw std::runtime_error(
+            "corpus-disjoint conditioned knownness failed prior-frozen regression");
     }
 
     std::cout << "stored_tuples=" << tuples.size()

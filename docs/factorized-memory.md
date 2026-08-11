@@ -321,3 +321,14 @@ Altair had been used both as a development unknown and as an older frozen
 unknown-entity control. The candidate stopped before its prior-frozen run, so
 the promising development result is not a valid replication result and no new
 frozen prompt was evaluated.
+
+A corpus-disjoint replication then fixed width 32 in advance and replaced the
+contaminated development unknowns with four labels absent from all earlier
+corpora. It passed 32/32 correct proposals and matching accepts, 96/96
+cross-label rejects, and 32/32 unknown exact no-ops. That configuration is
+then sealed for its one-shot prior-frozen regression. The regression preserved
+all older wrong-intent, missing-tuple, and unknown-relation no-ops but reached
+only 10/12 positive routes and rank-one targets. Both misses were
+Bellatrix/color: one failed its matching verifier and one was proposed as
+Arcturus by upstream association addressing. The experiment stopped before any
+new frozen prompt.
