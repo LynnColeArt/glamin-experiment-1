@@ -96,10 +96,10 @@ A rollback reproduced the baseline logits exactly in the same process.
     development passed at the first width, but the protocol was invalidated
     before regression because Altair appeared in development and prior frozen
     controls; no new frozen prompt was evaluated.
-  - [ ] Repeat label-conditioned verification with corpus-disjoint development
-    unknowns and the entire prior corpus as a binding regression gate; clean
-    protocol frozen with width 32 fixed, and development passed before the
-    pending one-shot regression.
+  - [x] Repeat label-conditioned verification with corpus-disjoint development
+    unknowns and the entire prior corpus as a binding regression gate:
+    development passed, but the one-shot regression missed two Bellatrix/color
+    positives and stopped before new frozen evaluation.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

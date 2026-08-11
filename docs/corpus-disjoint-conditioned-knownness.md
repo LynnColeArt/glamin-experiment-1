@@ -4,11 +4,13 @@
 
 Protocol frozen on 2026-08-10 before implementation and before any candidate
 regression or new frozen prompt was evaluated. Development passed at the fixed
-width. The candidate is now sealed pending its one-shot prior-frozen regression.
-At base commit `53a1bad`, a
+width. The first and only candidate prior-frozen run then failed positive recall
+at 10/12. The experiment stopped; no new frozen prompt was evaluated. At base
+commit `53a1bad`, a
 repository-wide provenance search found no occurrence of the development
 unknown labels `Canopus`, `Achernar`, `Hadar`, or `Acrux` outside this protocol.
-No model prompt containing those labels has been evaluated in this project.
+Before this candidate's development run, no model prompt containing those
+labels had been evaluated in this project.
 
 All previously observed prompts and labels remain regression evidence. The
 unused frozen strings inherited below were documented but never evaluated by
@@ -88,8 +90,8 @@ end-to-end exact no-ops. Calibration produced:
 | Cygnus | `0.636825` | `0.839783` | `2.04438` | `-0.364815` |
 | Draco | `0.544305` | `0.986859` | `1.67582` | `0.2979` |
 
-No candidate prior-frozen or new frozen prompt has run. The configuration is
-sealed at implementation commit `8a059df` before that boundary.
+The configuration was sealed at implementation commit `8a059df`; the regression
+harness was sealed at commit `d6207d2` before the one-shot run.
 
 ## Prior-Frozen Regression Gate
 
@@ -106,6 +108,44 @@ previous corpus. It must produce:
 
 Failure stops the experiment. The candidate may not be tuned against any
 failed regression observation.
+
+## Prior-Frozen Regression Result
+
+The sealed candidate ran the prior corpus exactly once and failed its
+conjunctive criterion:
+
+| Measurement | Result |
+| --- | ---: |
+| Local compatibility positives | 12/12 |
+| Local cross-tuple rejections | 60/60 |
+| Local intent positives | 12/12 |
+| Local negative exact no-ops with full intermediate reach | 36/36 |
+| Composition routes and rank-one targets | 10/12 |
+| Composition negatives with full intermediate reach and exact no-op | 17/18 |
+| Older wrong-intent exact no-ops | 30/30 |
+| Missing-tuple exact no-ops | 4/4 |
+| Unknown-entity base-address acceptance followed by veto and no-op | 1/4 |
+| Unknown-relation exact no-ops | 4/4 |
+
+The two positive failures were both Bellatrix/color. On the `ledger` form,
+association addressing selected Bellatrix and the Bellatrix prototype was the
+nearest verifier, but its radial or contrastive condition rejected the request;
+the unchanged target ranked 504. On the `resolve` form, association addressing
+proposed Arcturus and its verifier was nearest, so the identity-confirming gate
+correctly refused to substitute Bellatrix; the unchanged target ranked 3191.
+
+The `17/18` and `1/4` values above are stricter reach-qualified diagnostics in
+the sealed harness, not counts of unauthorized state changes. A composition
+negative rejected before intent does not satisfy that diagnostic even though it
+abstains, and an unknown rejected by base entity addressing does not satisfy the
+"accepted then vetoed" diagnostic. Every printed unknown-entity case reported
+`known_entity=no` and `applied=no`; the fixed intent artifact cannot apply an
+action on a path that stops upstream. The decisive preregistered failure is the
+10/12 positive route and rank-one result, so no ambiguity in those diagnostic
+subcounts changes the stop decision.
+
+The candidate is retained unchanged and may not be tuned against either
+Bellatrix observation.
 
 ## Untouched Local Frozen Stage
 
@@ -159,6 +199,8 @@ tuning is permitted.
 
 ## Consequence
 
-Atomic persistence remains deferred unless every stage passes. A pass would
-justify a separate persistence protocol, not production authority or an
-adversarial-robustness claim.
+Atomic persistence remains deferred. Label conditioning cleanly separates its
+development corpus but does not solve the frozen entity-address recall boundary:
+one Bellatrix request fails verification and another fails before verification.
+A materially different approach requires a fresh preregistration. The untouched
+local and composition sets above remain unevaluated.

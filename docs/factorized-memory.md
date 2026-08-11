@@ -326,5 +326,9 @@ A corpus-disjoint replication then fixed width 32 in advance and replaced the
 contaminated development unknowns with four labels absent from all earlier
 corpora. It passed 32/32 correct proposals and matching accepts, 96/96
 cross-label rejects, and 32/32 unknown exact no-ops. That configuration is
-sealed for its one-shot prior-frozen regression; neither that candidate
-regression nor any new frozen prompt has run yet.
+then sealed for its one-shot prior-frozen regression. The regression preserved
+all older wrong-intent, missing-tuple, and unknown-relation no-ops but reached
+only 10/12 positive routes and rank-one targets. Both misses were
+Bellatrix/color: one failed its matching verifier and one was proposed as
+Arcturus by upstream association addressing. The experiment stopped before any
+new frozen prompt.

@@ -38,12 +38,13 @@ experiments establish: (1) live geometry activation and deterministic rollback;
 (3) a factorized entity–relation–action join that separates broad semantic
 evidence from authority to apply a specific memory action.
 
-The clean label-conditioned replication has now passed its fixed-width
-development preflight: 32/32 correct entity proposals and matching accepts,
-96/96 nonmatching-label rejections, and 32/32 corpus-disjoint unknown exact
-no-ops. Its four development unknown labels were absent from all earlier
-corpora. The configuration is sealed for its one-shot prior-frozen regression;
-no candidate regression or new frozen prompt has yet been evaluated.
+The clean label-conditioned replication passed its fixed-width development
+preflight, then failed its one-shot prior regression at 10/12 positive routes
+and rank-one targets. Both misses were Bellatrix/color: one selected Bellatrix
+but failed its verifier, while the other proposed Arcturus upstream and was
+correctly not repaired by the veto-only verifier. All 30 older wrong-intent
+controls and every missing/unknown-relation control remained no-ops. The
+experiment stopped before any new frozen prompt.
 
 ## Research questions
 
@@ -185,7 +186,7 @@ measurable. Model files are not included in this repository.
 | Conjunctive retrieval authorization | Local compatibility and intent each accepted 12/12 positives; composition produced 11/12 rank-one targets | Compatibility rejected 60/60 wrong tuples; intent made 36/36 local negatives and 17/18 composition negatives exact no-ops; 30/30 prior wrong intents remained no-ops | Both local gates passed; composition failed on one positive, one counterfactual, and one unknown-entity factor decision |
 | Composition-stability replication | Development passed all knownness, compatibility, and intent criteria; prior-frozen composition produced 11/12 rank-one targets | Repaired the prior counterfactual to 18/18 no-ops and unknown entities to 4/4; preserved 36/36 local and 30/30 older negative no-ops | Stopped at regression because knownness rejected one registered Bellatrix form; new frozen sets were never evaluated |
 | Label-conditioned entity knownness | First width passed 32/32 matches, 96/96 cross-label rejections, and 32/32 unknown exact no-ops | Candidate regression and every new frozen prompt remained unrun | Stopped on protocol provenance: development reused the prior frozen unknown label Altair |
-| Corpus-disjoint conditioned knownness | Fixed width 32 passed 32/32 matching accepts, 96/96 cross-label rejects, and 32/32 clean-unknown exact no-ops | Candidate regression and every new frozen prompt remain unrun | Development passed; configuration sealed for the one-shot prior regression |
+| Corpus-disjoint conditioned knownness | Fixed width 32 passed 32/32 matching accepts, 96/96 cross-label rejects, and 32/32 clean-unknown exact no-ops; prior composition reached 10/12 rank-one targets | Preserved 36/36 local and 30/30 older intent no-ops plus all missing and unknown-relation controls | Stopped after the one-shot regression missed two Bellatrix/color positives; new frozen prompts remained untouched |
 
 ### Topology-aware action probe
 
@@ -522,14 +523,17 @@ robust gating, untrusted multi-tenant isolation, or a complete audit service.
    earlier corpora; the first protocol was invalidated before regression by an
    Altair provenance collision. The clean frozen protocol is in
    [Corpus-Disjoint Conditioned Knownness](docs/corpus-disjoint-conditioned-knownness.md).
-6. Hold later target-state action and every current wrong-intent,
+6. Preserve its stopped one-shot result: label conditioning passed clean
+   development but missed two Bellatrix/color prior positives, including one
+   upstream association error that a veto-only verifier cannot repair.
+7. Hold later target-state action and every current wrong-intent,
    unknown-factor, and missing-tuple control fixed as regression evidence.
-7. Persist entity space, relation space, tuple membership, action variants,
+8. Persist entity space, relation space, tuple membership, action variants,
    projections, gates, and payloads as one atomically swappable generation.
-8. Add generation-A/generation-B behavioral baselines and geometry diffs.
-9. Measure larger memories, broader negatives, multi-token recall, and general
+9. Add generation-A/generation-B behavioral baselines and geometry diffs.
+10. Measure larger memories, broader negatives, multi-token recall, and general
    capability retention.
-10. Add durable trace segments and an immutable source ledger before considering
+11. Add durable trace segments and an immutable source ledger before considering
    procedural mini-apps or external capabilities.
 
 ## Citation
