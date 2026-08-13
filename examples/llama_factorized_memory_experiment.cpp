@@ -597,6 +597,56 @@ joint_entity_development_prompts(
     };
 }
 
+std::vector<std::pair<std::string, std::string>>
+sequence_evidence_construction_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"indexed-value",
+         "Retrieve the " + relation + " value indexed for " + entity +
+             ".\nValue:"},
+        {"memory-catalog",
+         "memory.catalog(\"" + entity + "\").read(\"" + relation +
+             "\") =>"},
+        {"retained-slot",
+         "Inspect " + entity + "'s retained record and return the " +
+             relation + " slot.\nSlot:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+sequence_evidence_calibration_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"registry-subject",
+         "Fetch attribute " + relation + " for registry subject " + entity +
+             ".\nAttribute:"},
+        {"registry-lookup",
+         "registry.lookup(subject=" + entity + ", field=" + relation +
+             ") ->"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+sequence_evidence_development_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"account-record",
+         "Read " + relation + " in " + entity +
+             "'s account record.\nValue:"},
+        {"entity-db",
+         "entity_db[" + entity + "].get(" + relation + ") ->"},
+        {"catalog-key",
+         "Use " + entity + " as the catalog key and return " + relation +
+             ".\nResult:"},
+        {"record-owner-slot",
+         "Find the " + relation + " slot for record owner " + entity +
+             ".\nSlot:"},
+    };
+}
+
 std::vector<float> project_normalized_for_probe(
     const std::vector<float>& state,
     const gx1::ActivationMemoryBuildResult& memory) {
@@ -5140,20 +5190,337 @@ int run(const std::string& model_path) {
               << joint_development_unknown_count << " unknown_finite "
               << joint_development_unknown_finite << '/'
               << joint_development_unknown_count << '\n';
-    if (joint_development_top_two != joint_development_known_count ||
-        joint_development_selected != joint_development_known_count ||
-        joint_development_finite != joint_development_known_count ||
-        joint_development_unknown_rejections !=
-            joint_development_unknown_count ||
-        joint_development_unknown_noops != joint_development_unknown_count ||
-        joint_development_unknown_finite !=
-            joint_development_unknown_count ||
-        conditioned_association_matches != 32U ||
-        conditioned_unknown_noops != 32U ||
-        replication_negative_noops !=
-            replication_development_negatives.size()) {
+    const auto historical_joint_result_reproduced =
+        joint_development_top_two == joint_development_known_count &&
+        joint_development_selected == 28U &&
+        joint_development_finite == joint_development_known_count &&
+        joint_development_unknown_rejections ==
+            joint_development_unknown_count &&
+        joint_development_unknown_noops == joint_development_unknown_count &&
+        joint_development_unknown_finite == joint_development_unknown_count &&
+        conditioned_association_matches == 32U &&
+        conditioned_unknown_noops == 32U &&
+        replication_negative_noops ==
+            replication_development_negatives.size();
+    if (!historical_joint_result_reproduced) {
         throw std::runtime_error(
-            "joint top-k entity selection failed development preflight");
+            "historical joint top-k development result changed");
+    }
+
+    std::vector<gx1::ActivationMemoryConstructionView>
+        sequence_evidence_construction;
+    std::size_t sequence_construction_association_matches = 0U;
+    for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : sequence_evidence_construction_prompts(
+                     entities[entity], relation)) {
+                auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                auto association = nearest_factor_selection_for_probe(
+                    baseline.token_states,
+                    entity_address_association_memory);
+                sequence_construction_association_matches +=
+                    association.first == entity ? 1U : 0U;
+                sequence_evidence_construction.push_back({
+                    entity,
+                    std::move(baseline.token_states),
+                    association.second,
+                    association.second,
+                });
+            }
+        }
+    }
+
+    std::vector<gx1::ActivationMemoryValidationView>
+        sequence_evidence_calibration_positives;
+    for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : sequence_evidence_calibration_prompts(
+                     entities[entity], relation)) {
+                auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                sequence_evidence_calibration_positives.push_back({
+                    entity, std::move(baseline.token_states)});
+            }
+        }
+    }
+
+    std::vector<gx1::ActivationMemoryCalibrationView>
+        sequence_evidence_calibration_unknowns;
+    for (const auto& unknown : {std::string("Alhena"), std::string("Sadr"),
+                                std::string("Zosma"), std::string("Kochab")}) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : sequence_evidence_calibration_prompts(
+                     unknown, relation)) {
+                auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                sequence_evidence_calibration_unknowns.push_back({
+                    std::nullopt, std::move(baseline.token_states)});
+            }
+        }
+    }
+
+    build_stage("sequence-entity-evidence");
+    const auto sequence_evidence_memory = gx1::ActivationMemoryBuilder::build(
+        sequence_evidence_construction,
+        sequence_evidence_calibration_unknowns,
+        sequence_evidence_calibration_positives,
+        gx1::ActivationMemoryBuildConfig{
+            64U,
+            0.5F,
+            false,
+            gx1::ActivationProjectionStrategy::association_signal,
+            gx1::ActivationValidationScope::global,
+            gx1::ActivationKeyStrategy::selected_views,
+            true,
+        });
+    if (!(sequence_evidence_memory.maximum_negative_group_margin <
+          sequence_evidence_memory.minimum_validation_group_margin)) {
+        throw std::runtime_error(
+            "sequence entity evidence identity gaps do not separate");
+    }
+    const auto sequence_evidence_identity_margin =
+        sequence_evidence_memory.maximum_negative_group_margin +
+        0.5F *
+            (sequence_evidence_memory.minimum_validation_group_margin -
+             sequence_evidence_memory.maximum_negative_group_margin);
+    if (!(sequence_evidence_identity_margin > 0.0F) ||
+        !std::isfinite(sequence_evidence_identity_margin)) {
+        throw std::runtime_error(
+            "sequence entity evidence identity margin is invalid");
+    }
+    std::vector<std::size_t> sequence_prototypes_per_entity(
+        entities.size(), 0U);
+    for (const auto label : sequence_evidence_memory.key_associations) {
+        if (label >= sequence_prototypes_per_entity.size()) {
+            throw std::runtime_error(
+                "sequence entity evidence produced an unknown label");
+        }
+        ++sequence_prototypes_per_entity[label];
+    }
+    const auto sequence_prototype_count_valid = std::all_of(
+        sequence_prototypes_per_entity.begin(),
+        sequence_prototypes_per_entity.end(),
+        [](const std::size_t count) { return count == 6U; });
+    std::cout << "sequence_evidence_calibration=construction_association "
+              << sequence_construction_association_matches << "/24"
+              << " prototypes " << sequence_evidence_memory.keys.size()
+              << "/24 radius " << sequence_evidence_memory.maximum_distance
+              << " hardest_positive "
+              << sequence_evidence_memory.maximum_validation_distance
+              << " nearest_unknown "
+              << sequence_evidence_memory.minimum_negative_distance
+              << " identity_margin " << sequence_evidence_identity_margin
+              << " weakest_positive_gap "
+              << sequence_evidence_memory.minimum_validation_group_margin
+              << " strongest_unknown_gap "
+              << sequence_evidence_memory.maximum_negative_group_margin
+              << '\n';
+    if (sequence_construction_association_matches != 24U ||
+        !sequence_prototype_count_valid ||
+        sequence_evidence_memory.validation_selections.size() != 16U ||
+        sequence_evidence_memory.negative_selections.size() != 16U) {
+        throw std::runtime_error(
+            "sequence entity evidence calibration contract failed");
+    }
+
+    const auto make_sequence_evidence_hook = [&]() {
+        generations.activate(entity_address_association_generation);
+        auto entity_pin = generations.pin_active();
+        generations.activate(relation_prototype_generation);
+        auto relation_pin = generations.pin_active();
+        return gx1::FactorizedLayerMemoryHook(
+            std::move(entity_pin),
+            factor_config(entity_address_association_memory),
+            entity_labels,
+            std::move(relation_pin),
+            factor_config(relation_prototype_memory),
+            relation_prototype_labels,
+            1.0F,
+            replication_payloads,
+            replication_compatibility_memory.maximum_distance,
+            factor_config(replication_compatibility_memory),
+            gx1::RetrievalIntentGateConfig{
+                factor_config(replication_intent_memory),
+                replication_intent_memory.keys.front(),
+                replication_intent_calibration.negative_prototype,
+                replication_intent_calibration.minimum_margin,
+            },
+            true,
+            std::nullopt,
+            std::nullopt,
+            2U,
+            gx1::SequenceEntityEvidenceConfig{
+                factor_config(sequence_evidence_memory),
+                sequence_evidence_memory.keys,
+                std::vector<std::uint64_t>(
+                    sequence_evidence_memory.key_associations.begin(),
+                    sequence_evidence_memory.key_associations.end()),
+                sequence_evidence_identity_margin,
+            });
+    };
+
+    const auto diagnostics_finite = [](const gx1::FactorizedMemoryResult& result) {
+        return result.entity_candidate_labels.size() == 2U &&
+               result.entity_candidate_distances.size() == 2U &&
+               result.entity_evidence_diagnostics.size() == 2U &&
+               std::all_of(
+                   result.entity_evidence_diagnostics.begin(),
+                   result.entity_evidence_diagnostics.end(),
+                   [](const gx1::EntityEvidenceDiagnostic& diagnostic) {
+                       return std::isfinite(diagnostic.association_distance) &&
+                              std::isfinite(diagnostic.evidence_distance) &&
+                              std::isfinite(diagnostic.competitor_distance) &&
+                              std::isfinite(diagnostic.identity_gap) &&
+                              std::isfinite(diagnostic.joint_score);
+                   });
+    };
+
+    std::size_t sequence_development_top_two = 0U;
+    std::size_t sequence_development_selected = 0U;
+    std::size_t sequence_development_finite = 0U;
+    std::size_t sequence_development_known_count = 0U;
+    for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : sequence_evidence_development_prompts(
+                     entities[entity], relation)) {
+                ++sequence_development_known_count;
+                const auto memory = infer_with_target_state_memory(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    make_sequence_evidence_hook(),
+                    target_states,
+                    target_tensor,
+                    action_tensor);
+                const auto in_top_two = std::find(
+                    memory.hook.entity_candidate_labels.begin(),
+                    memory.hook.entity_candidate_labels.end(),
+                    entity) != memory.hook.entity_candidate_labels.end();
+                const auto selected = memory.hook.entity.accepted &&
+                                      memory.hook.known_entity_accepted &&
+                                      memory.hook.entity.factor_label == entity;
+                const auto finite = diagnostics_finite(memory.hook);
+                sequence_development_top_two += in_top_two ? 1U : 0U;
+                sequence_development_selected += selected ? 1U : 0U;
+                sequence_development_finite += finite ? 1U : 0U;
+                std::cout << "sequence_development_known=" << prompt.first
+                          << '/' << entities[entity] << '/' << relation
+                          << " top_two=" << (in_top_two ? "yes" : "no")
+                          << " selected=" << (selected ? "yes" : "no")
+                          << " selected_label="
+                          << memory.hook.entity.factor_label << '\n';
+                for (const auto& diagnostic :
+                     memory.hook.entity_evidence_diagnostics) {
+                    std::cout << "sequence_development_candidate="
+                              << prompt.first << '/' << entities[entity] << '/'
+                              << relation << "/label " << diagnostic.label
+                              << "/association "
+                              << diagnostic.association_distance
+                              << "/evidence " << diagnostic.evidence_distance
+                              << "/competitor "
+                              << diagnostic.competitor_distance << "/gap "
+                              << diagnostic.identity_gap << "/score "
+                              << diagnostic.joint_score << "/eligible "
+                              << (diagnostic.eligible ? "yes" : "no") << '\n';
+                }
+            }
+        }
+    }
+
+    std::size_t sequence_development_unknown_rejections = 0U;
+    std::size_t sequence_development_unknown_noops = 0U;
+    std::size_t sequence_development_unknown_finite = 0U;
+    std::size_t sequence_development_unknown_count = 0U;
+    for (const auto& unknown : {std::string("Hamal"), std::string("Markab"),
+                                std::string("Kaus"), std::string("Ankaa")}) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : sequence_evidence_development_prompts(
+                     unknown, relation)) {
+                ++sequence_development_unknown_count;
+                const auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                const auto memory = infer_with_target_state_memory(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    make_sequence_evidence_hook(),
+                    target_states,
+                    target_tensor,
+                    action_tensor);
+                const auto rejected = !memory.hook.entity.accepted &&
+                                      !memory.hook.known_entity_accepted;
+                const auto exact_noop = rejected && !memory.hook.applied &&
+                                        maximum_logit_difference(
+                                            baseline.logits,
+                                            memory.logits) <= 1.0e-5F;
+                const auto finite = diagnostics_finite(memory.hook);
+                sequence_development_unknown_rejections += rejected ? 1U : 0U;
+                sequence_development_unknown_noops += exact_noop ? 1U : 0U;
+                sequence_development_unknown_finite += finite ? 1U : 0U;
+                std::cout << "sequence_development_unknown=" << prompt.first
+                          << '/' << unknown << '/' << relation
+                          << " rejected=" << (rejected ? "yes" : "no")
+                          << " exact_noop=" << (exact_noop ? "yes" : "no")
+                          << '\n';
+                for (const auto& diagnostic :
+                     memory.hook.entity_evidence_diagnostics) {
+                    std::cout << "sequence_development_unknown_candidate="
+                              << prompt.first << '/' << unknown << '/'
+                              << relation << "/label " << diagnostic.label
+                              << "/association "
+                              << diagnostic.association_distance
+                              << "/evidence " << diagnostic.evidence_distance
+                              << "/competitor "
+                              << diagnostic.competitor_distance << "/gap "
+                              << diagnostic.identity_gap << "/score "
+                              << diagnostic.joint_score << "/eligible "
+                              << (diagnostic.eligible ? "yes" : "no") << '\n';
+                }
+            }
+        }
+    }
+
+    std::cout << "sequence_development_summary=top_two "
+              << sequence_development_top_two << '/'
+              << sequence_development_known_count << " selected "
+              << sequence_development_selected << '/'
+              << sequence_development_known_count << " known_finite "
+              << sequence_development_finite << '/'
+              << sequence_development_known_count << " unknown_rejections "
+              << sequence_development_unknown_rejections << '/'
+              << sequence_development_unknown_count << " unknown_noops "
+              << sequence_development_unknown_noops << '/'
+              << sequence_development_unknown_count << " unknown_finite "
+              << sequence_development_unknown_finite << '/'
+              << sequence_development_unknown_count << '\n';
+    if (sequence_development_top_two != sequence_development_known_count ||
+        sequence_development_selected != sequence_development_known_count ||
+        sequence_development_finite != sequence_development_known_count ||
+        sequence_development_unknown_rejections !=
+            sequence_development_unknown_count ||
+        sequence_development_unknown_noops !=
+            sequence_development_unknown_count ||
+        sequence_development_unknown_finite !=
+            sequence_development_unknown_count) {
+        throw std::runtime_error(
+            "sequence entity evidence failed development preflight");
     }
 
     std::cout << "stored_tuples=" << tuples.size()
