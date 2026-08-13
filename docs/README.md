@@ -45,6 +45,9 @@
   bounded two-label selector that jointly searches association and verifier
   evidence before committing to an entity; it reached 32/32 top-two coverage
   but stopped at 28/32 selections in development.
+- [Sequence-level multi-prototype entity evidence](sequence-entity-evidence.md)
+  preregisters a replacement evidence gate that aggregates identity support
+  across token states and preserves separate syntax-view prototypes.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
