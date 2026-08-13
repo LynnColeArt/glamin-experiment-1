@@ -128,6 +128,41 @@ void validate_label_conditioned_gate_config(
     }
 }
 
+void validate_sequence_entity_evidence_config(
+    const SequenceEntityEvidenceConfig& config,
+    const std::uint32_t hidden_dimension) {
+    validate_projection_config(config.search);
+    const auto expected_width =
+        static_cast<std::size_t>(config.search.query_dimension);
+    if (config.search.hidden_dimension != hidden_dimension ||
+        config.prototypes.empty() ||
+        config.prototypes.size() != config.prototype_labels.size() ||
+        !(config.search.maximum_distance > 0.0F) ||
+        !std::isfinite(config.minimum_identity_margin) ||
+        !(config.minimum_identity_margin > 0.0F)) {
+        throw std::invalid_argument(
+            "sequence entity evidence does not match the hidden-state contract");
+    }
+    std::vector<std::uint64_t> distinct_labels;
+    for (std::size_t index = 0; index < config.prototypes.size(); ++index) {
+        const auto& prototype = config.prototypes[index];
+        if (prototype.size() != expected_width || !all_finite(prototype)) {
+            throw std::invalid_argument(
+                "sequence entity evidence prototype is invalid");
+        }
+        if (std::find(
+                distinct_labels.begin(),
+                distinct_labels.end(),
+                config.prototype_labels[index]) == distinct_labels.end()) {
+            distinct_labels.push_back(config.prototype_labels[index]);
+        }
+    }
+    if (distinct_labels.size() < 2U) {
+        throw std::invalid_argument(
+            "sequence entity evidence requires competing labels");
+    }
+}
+
 } // namespace
 
 void TupleResidualLedger::insert(
@@ -249,7 +284,9 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
     const bool scan_action_candidates,
     std::optional<ContrastiveGateConfig> known_entity_config,
     std::optional<LabelConditionedGateConfig> label_conditioned_entity_config,
-    const std::size_t joint_entity_candidate_count)
+    const std::size_t joint_entity_candidate_count,
+    std::optional<SequenceEntityEvidenceConfig>
+        sequence_entity_evidence_config)
     : entity_pin_(std::move(entity_pin)),
       entity_config_(std::move(entity_config)),
       entity_labels_(std::move(entity_labels)),
@@ -265,7 +302,9 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
       known_entity_config_(std::move(known_entity_config)),
       label_conditioned_entity_config_(
           std::move(label_conditioned_entity_config)),
-      joint_entity_candidate_count_(joint_entity_candidate_count) {
+      joint_entity_candidate_count_(joint_entity_candidate_count),
+      sequence_entity_evidence_config_(
+          std::move(sequence_entity_evidence_config)) {
     validate_config(entity_pin_, entity_config_, entity_labels_);
     validate_config(relation_pin_, relation_config_, relation_labels_);
     if (entity_config_.hidden_dimension != relation_config_.hidden_dimension) {
@@ -299,15 +338,30 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
             *label_conditioned_entity_config_,
             entity_config_.hidden_dimension);
     }
-    if (known_entity_config_ && label_conditioned_entity_config_) {
+    if (sequence_entity_evidence_config_) {
+        validate_sequence_entity_evidence_config(
+            *sequence_entity_evidence_config_,
+            entity_config_.hidden_dimension);
+    }
+    const auto entity_gate_count =
+        static_cast<unsigned>(known_entity_config_.has_value()) +
+        static_cast<unsigned>(label_conditioned_entity_config_.has_value()) +
+        static_cast<unsigned>(sequence_entity_evidence_config_.has_value());
+    if (entity_gate_count > 1U) {
         throw std::invalid_argument(
-            "factorized memory has two entity-knownness gates");
+            "factorized memory has multiple entity-knownness gates");
     }
     if (joint_entity_candidate_count_ == 0U ||
         (joint_entity_candidate_count_ > 1U &&
-         !label_conditioned_entity_config_)) {
+         !label_conditioned_entity_config_ &&
+         !sequence_entity_evidence_config_)) {
         throw std::invalid_argument(
-            "joint entity selection requires a label-conditioned gate");
+            "joint entity selection requires an entity evidence gate");
+    }
+    if (sequence_entity_evidence_config_ &&
+        joint_entity_candidate_count_ <= 1U) {
+        throw std::invalid_argument(
+            "sequence entity evidence requires joint entity selection");
     }
     if (joint_entity_candidate_count_ > 1U) {
         if (!(entity_config_.maximum_distance > 0.0F) ||
@@ -317,16 +371,35 @@ FactorizedLayerMemoryHook::FactorizedLayerMemoryHook(
                 "joint entity selection has invalid search geometry");
         }
         for (const auto label : entity_labels_) {
-            const auto found = std::find_if(
-                label_conditioned_entity_config_->entries.begin(),
-                label_conditioned_entity_config_->entries.end(),
-                [label](const LabelConditionedGateEntry& entry) {
-                    return entry.label == label;
-                });
-            if (found == label_conditioned_entity_config_->entries.end() ||
-                !(found->maximum_distance > 0.0F)) {
+            if (label_conditioned_entity_config_) {
+                const auto found = std::find_if(
+                    label_conditioned_entity_config_->entries.begin(),
+                    label_conditioned_entity_config_->entries.end(),
+                    [label](const LabelConditionedGateEntry& entry) {
+                        return entry.label == label;
+                    });
+                if (found == label_conditioned_entity_config_->entries.end() ||
+                    !(found->maximum_distance > 0.0F)) {
+                    throw std::invalid_argument(
+                        "joint entity selection has incomplete verifier geometry");
+                }
+            } else if (std::find(
+                           sequence_entity_evidence_config_->prototype_labels.begin(),
+                           sequence_entity_evidence_config_->prototype_labels.end(),
+                           label) ==
+                       sequence_entity_evidence_config_->prototype_labels.end()) {
                 throw std::invalid_argument(
-                    "joint entity selection has incomplete verifier geometry");
+                    "joint entity selection has incomplete evidence geometry");
+            }
+        }
+        if (sequence_entity_evidence_config_) {
+            for (const auto label :
+                 sequence_entity_evidence_config_->prototype_labels) {
+                if (std::find(entity_labels_.begin(), entity_labels_.end(), label) ==
+                    entity_labels_.end()) {
+                    throw std::invalid_argument(
+                        "sequence entity evidence names an unknown factor label");
+                }
             }
         }
     }
@@ -403,6 +476,7 @@ FactorizedLayerMemoryHook::authorize_selection(
             std::vector<std::uint64_t> state_rows;
             float joint_score{std::numeric_limits<float>::max()};
             std::size_t state{0U};
+            std::size_t association_state{0U};
             bool eligible{false};
             float positive_distance{0.0F};
             float negative_distance{0.0F};
@@ -410,14 +484,35 @@ FactorizedLayerMemoryHook::authorize_selection(
         };
 
         std::vector<JointCandidate> candidates;
-        for (const auto& entry : label_conditioned_entity_config_->entries) {
-            candidates.push_back(JointCandidate{
-                entry.label,
-                std::numeric_limits<float>::max(),
-                std::vector<float>(
-                    entity_states.size(), std::numeric_limits<float>::max()),
-                std::vector<std::uint64_t>(entity_states.size(), 0U),
-            });
+        if (label_conditioned_entity_config_) {
+            for (const auto& entry : label_conditioned_entity_config_->entries) {
+                candidates.push_back(JointCandidate{
+                    entry.label,
+                    std::numeric_limits<float>::max(),
+                    std::vector<float>(
+                        entity_states.size(), std::numeric_limits<float>::max()),
+                    std::vector<std::uint64_t>(entity_states.size(), 0U),
+                });
+            }
+        } else {
+            for (const auto label :
+                 sequence_entity_evidence_config_->prototype_labels) {
+                if (std::find_if(
+                        candidates.begin(),
+                        candidates.end(),
+                        [label](const JointCandidate& candidate) {
+                            return candidate.label == label;
+                        }) == candidates.end()) {
+                    candidates.push_back(JointCandidate{
+                        label,
+                        std::numeric_limits<float>::max(),
+                        std::vector<float>(
+                            entity_states.size(),
+                            std::numeric_limits<float>::max()),
+                        std::vector<std::uint64_t>(entity_states.size(), 0U),
+                    });
+                }
+            }
         }
         const auto search_k =
             static_cast<std::uint32_t>(entity_pin_.vector_count());
@@ -450,8 +545,10 @@ FactorizedLayerMemoryHook::authorize_selection(
                 if (search.distances[rank] < candidate->state_distances[state]) {
                     candidate->state_distances[state] = search.distances[rank];
                     candidate->state_rows[state] = row;
-                    candidate->best_distance = std::min(
-                        candidate->best_distance, search.distances[rank]);
+                    if (search.distances[rank] < candidate->best_distance) {
+                        candidate->best_distance = search.distances[rank];
+                        candidate->association_state = state;
+                    }
                 }
             }
         }
@@ -472,6 +569,84 @@ FactorizedLayerMemoryHook::authorize_selection(
             result.entity_candidate_labels.push_back(candidates[index].label);
             result.entity_candidate_distances.push_back(
                 candidates[index].best_distance);
+            if (sequence_entity_evidence_config_) {
+                EntityEvidenceDiagnostic diagnostic;
+                diagnostic.label = candidates[index].label;
+                diagnostic.association_distance = candidates[index].best_distance;
+                diagnostic.association_state =
+                    candidates[index].association_state;
+                diagnostic.association_accepted =
+                    candidates[index].best_distance <=
+                    entity_config_.maximum_distance;
+                for (std::size_t state = 0; state < entity_states.size(); ++state) {
+                    const auto query = project(
+                        sequence_entity_evidence_config_->search,
+                        entity_states[state]);
+                    auto own_distance = std::numeric_limits<float>::max();
+                    auto competitor_distance =
+                        std::numeric_limits<float>::max();
+                    std::size_t own_prototype = 0U;
+                    for (std::size_t prototype = 0;
+                         prototype <
+                         sequence_entity_evidence_config_->prototypes.size();
+                         ++prototype) {
+                        const auto distance = squared_distance(
+                            query,
+                            sequence_entity_evidence_config_->prototypes[prototype]);
+                        if (sequence_entity_evidence_config_
+                                ->prototype_labels[prototype] ==
+                            candidates[index].label) {
+                            if (distance < own_distance) {
+                                own_distance = distance;
+                                own_prototype = prototype;
+                            }
+                        } else {
+                            competitor_distance = std::min(
+                                competitor_distance, distance);
+                        }
+                    }
+                    if (own_distance < diagnostic.evidence_distance) {
+                        diagnostic.evidence_distance = own_distance;
+                        diagnostic.competitor_distance = competitor_distance;
+                        diagnostic.evidence_state = state;
+                        diagnostic.evidence_prototype = own_prototype;
+                    }
+                }
+                diagnostic.identity_gap =
+                    diagnostic.competitor_distance -
+                    diagnostic.evidence_distance;
+                diagnostic.radius_accepted =
+                    diagnostic.evidence_distance <=
+                    sequence_entity_evidence_config_->search.maximum_distance;
+                diagnostic.margin_accepted =
+                    diagnostic.identity_gap >=
+                    sequence_entity_evidence_config_->minimum_identity_margin;
+                diagnostic.eligible = diagnostic.association_accepted &&
+                                      diagnostic.radius_accepted &&
+                                      diagnostic.margin_accepted;
+                if (diagnostic.eligible) {
+                    diagnostic.joint_score =
+                        diagnostic.association_distance /
+                            entity_config_.maximum_distance +
+                        diagnostic.evidence_distance /
+                            sequence_entity_evidence_config_->search.maximum_distance;
+                    if (!std::isfinite(diagnostic.joint_score)) {
+                        throw std::runtime_error(
+                            "sequence entity evidence score is non-finite");
+                    }
+                    candidates[index].eligible = true;
+                    candidates[index].joint_score = diagnostic.joint_score;
+                    candidates[index].state = diagnostic.evidence_state;
+                    candidates[index].positive_distance =
+                        diagnostic.evidence_distance;
+                    candidates[index].negative_distance =
+                        diagnostic.competitor_distance;
+                    candidates[index].nearest_verifier =
+                        candidates[index].label;
+                }
+                result.entity_evidence_diagnostics.push_back(diagnostic);
+                continue;
+            }
             const auto entry = std::find_if(
                 label_conditioned_entity_config_->entries.begin(),
                 label_conditioned_entity_config_->entries.end(),
@@ -551,13 +726,14 @@ FactorizedLayerMemoryHook::authorize_selection(
         result.entity.generation = entity_pin_.id();
         result.known_entity_accepted = selected != nullptr && !tied;
         if (result.known_entity_accepted) {
-            result.entity.memory_label =
-                selected->state_rows[selected->state];
+            const auto selected_state = sequence_entity_evidence_config_
+                                            ? selected->association_state
+                                            : selected->state;
+            result.entity.memory_label = selected->state_rows[selected_state];
             result.entity.factor_label = selected->label;
-            result.entity.distance =
-                selected->state_distances[selected->state];
+            result.entity.distance = selected->state_distances[selected_state];
             result.entity.accepted = true;
-            result.entity.address_candidate = selected->state;
+            result.entity.address_candidate = selected_state;
             result.known_entity_distance = selected->positive_distance;
             result.unknown_entity_distance = selected->negative_distance;
             result.known_entity_verifier_label = selected->label;
