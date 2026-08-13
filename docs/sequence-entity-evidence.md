@@ -148,6 +148,34 @@ after this document is committed. Implementation defects may be repaired using
 only construction, calibration, and development data. A model failure stops the
 experiment.
 
+## Development Result
+
+The first implementation passed the complete development preflight at sealed
+commit `1dc2ed5`:
+
+| Measurement | Result |
+| --- | ---: |
+| Construction association matches | 24/24 |
+| Prototypes produced | 24/24; six per entity |
+| Calibration known nearest-label selections | 16/16 |
+| Calibration unknown sequences | 16/16 outside the radial boundary |
+| Named development entity included in top two | 32/32 |
+| Named development entity selected | 32/32 |
+| Development unknown requests rejected | 32/32 |
+| Development unknown end-to-end exact no-ops | 32/32 |
+| Known and unknown diagnostics finite | 32/32 each |
+
+Calibration set the evidence radius to `0.563044` between the hardest positive
+distance `0.207863` and nearest unknown distance `0.918226`. It set the identity
+margin to `0.818244` between the weakest positive gap `1.15811` and strongest
+unknown gap `0.478381`.
+
+The historical joint top-two development result reproduced exactly at 32/32
+top-two inclusion, 28/32 selection, and 32/32 unknown exact no-ops before the
+new artifact was constructed. The replacement then selected all eight compact
+`entity_db` requests, including both relations for Bellatrix and Draco. No prior
+regression or untouched frozen prompt was evaluated during development.
+
 ## One-Shot Prior Regression
 
 The first implementation that passes development is sealed and evaluated once
