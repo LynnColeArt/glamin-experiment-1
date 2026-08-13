@@ -15,6 +15,11 @@ The local and composition prompts left untouched by the stopped joint top-two
 experiment remain frozen and unavailable until this candidate passes both
 development and the one-shot prior regression.
 
+Development later passed completely, but the first and only prior-regression
+run reached 11/12 composition routes and rank-one targets and 30/32 selections
+on the stopped joint-development corpus. The experiment stopped without tuning
+and without evaluating any still-untouched frozen prompt.
+
 ## Motivation
 
 Joint top-two association placed the named label in its candidate set for
@@ -195,6 +200,41 @@ on previously observed data. It must produce:
 
 Failure stops the experiment. The evidence mechanism and artifact may not be
 tuned against a failed regression observation.
+
+## Prior Regression Result
+
+The configuration was sealed at commit `c9af3c7` before its first and only
+prior-regression execution. It failed the conjunctive gate:
+
+| Measurement | Result |
+| --- | ---: |
+| Stopped joint-corpus known selections | 30/32 |
+| Stopped joint-corpus unknown exact no-ops | 32/32 |
+| Corpus-disjoint conditioned known selections | 32/32 |
+| Corpus-disjoint conditioned unknown exact no-ops | 32/32 |
+| Local compatibility positives | 12/12 |
+| Local compatibility cross-tuple rejections | 60/60 |
+| Local intent positives | 12/12 |
+| Local intent-negative exact no-ops | 36/36 |
+| Composition routes and rank-one targets | 11/12 |
+| Composition-negative exact no-ops | 18/18 |
+| Older wrong-intent exact no-ops | 30/30 |
+| Missing-tuple exact no-ops | 4/4 |
+| Unknown-entity exact no-ops | 4/4 |
+| Unknown-relation exact no-ops | 4/4 |
+
+The replacement repaired the prior Bellatrix/color `ledger` failure: it routed
+and ranked the target first. Bellatrix/color `resolve` remained unrouted with
+the unchanged target at rank 3191, leaving composition at 11/12 rather than the
+required 12/12. The sealed aggregate reporter did not retain candidate-level
+diagnostics for the two stopped joint-corpus selection misses or the unresolved
+composition miss, so their exact evidence boundary cannot be attributed
+without an impermissible rerun. No such rerun was performed.
+
+The result is therefore evidence of improvement, not a pass. All measured
+negative, missing, and unknown controls remained exact no-ops. Per protocol,
+the artifact was not tuned against the failures and both still-untouched frozen
+stages remain unevaluated.
 
 ## Still-Untouched Frozen Stages
 

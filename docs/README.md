@@ -116,3 +116,10 @@ with exact no-ops, but selected only 28/32 named entities. All four failures
 were Bellatrix or Draco requests in the `memory-index` form. The protocol
 therefore stopped in development before prior regression or new frozen
 evaluation.
+The sequence-level multi-prototype replacement then passed its fresh held-family
+development split at 32/32 selections and 32/32 unknown exact no-ops. Its
+one-shot prior regression preserved every measured negative, missing, and
+unknown control and improved composition from 10/12 to 11/12, repairing the
+Bellatrix/color `ledger` route. Bellatrix/color `resolve` remained unrouted, and
+the stopped joint-development corpus reached 30/32, so the experiment stopped
+before either untouched frozen stage.
