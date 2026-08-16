@@ -5361,7 +5361,7 @@ int run(const std::string& model_path) {
             true,
             std::nullopt,
             std::nullopt,
-            2U,
+            4U,
             gx1::SequenceEntityEvidenceConfig{
                 factor_config(sequence_evidence_memory),
                 sequence_evidence_memory.keys,
@@ -5372,10 +5372,10 @@ int run(const std::string& model_path) {
             });
     };
 
-    const auto diagnostics_finite = [](const gx1::FactorizedMemoryResult& result) {
-        return result.entity_candidate_labels.size() == 2U &&
-               result.entity_candidate_distances.size() == 2U &&
-               result.entity_evidence_diagnostics.size() == 2U &&
+    const auto diagnostics_finite = [&](const gx1::FactorizedMemoryResult& result) {
+        return result.entity_candidate_labels.size() == entities.size() &&
+               result.entity_candidate_distances.size() == entities.size() &&
+               result.entity_evidence_diagnostics.size() == entities.size() &&
                std::all_of(
                    result.entity_evidence_diagnostics.begin(),
                    result.entity_evidence_diagnostics.end(),
@@ -5386,6 +5386,27 @@ int run(const std::string& model_path) {
                               std::isfinite(diagnostic.identity_gap) &&
                               std::isfinite(diagnostic.joint_score);
                    });
+    };
+    const auto print_sequence_evidence_diagnostics = [](
+        const std::string& prefix,
+        const gx1::FactorizedMemoryResult& result) {
+        for (const auto& diagnostic : result.entity_evidence_diagnostics) {
+            std::cout << prefix << "/label " << diagnostic.label
+                      << "/association " << diagnostic.association_distance
+                      << "/association_ok "
+                      << (diagnostic.association_accepted ? "yes" : "no")
+                      << "/evidence " << diagnostic.evidence_distance
+                      << "/radius_ok "
+                      << (diagnostic.radius_accepted ? "yes" : "no")
+                      << "/competitor " << diagnostic.competitor_distance
+                      << "/gap " << diagnostic.identity_gap << "/margin_ok "
+                      << (diagnostic.margin_accepted ? "yes" : "no")
+                      << "/association_state " << diagnostic.association_state
+                      << "/evidence_state " << diagnostic.evidence_state
+                      << "/prototype " << diagnostic.evidence_prototype
+                      << "/score " << diagnostic.joint_score << "/eligible "
+                      << (diagnostic.eligible ? "yes" : "no") << '\n';
+        }
     };
 
     std::size_t sequence_development_top_two = 0U;
@@ -5544,6 +5565,16 @@ int run(const std::string& model_path) {
                             memory.hook.entity.factor_label == entity
                         ? 1U
                         : 0U;
+                std::cout << "adaptive_prior_joint=" << prompt.first << '/'
+                          << entities[entity] << '/' << relation
+                          << "/selected " << memory.hook.entity.factor_label
+                          << "/accepted "
+                          << (memory.hook.known_entity_accepted ? "yes" : "no")
+                          << '\n';
+                print_sequence_evidence_diagnostics(
+                    "adaptive_prior_joint_candidate=" + prompt.first + '/' +
+                        entities[entity] + '/' + relation,
+                    memory.hook);
             }
         }
     }
@@ -5602,6 +5633,10 @@ int run(const std::string& model_path) {
                             memory.hook.entity.factor_label == entity
                         ? 1U
                         : 0U;
+                print_sequence_evidence_diagnostics(
+                    "adaptive_prior_conditioned_candidate=" + prompt.first +
+                        '/' + entities[entity] + '/' + relation,
+                    memory.hook);
             }
         }
     }
@@ -5683,6 +5718,10 @@ int run(const std::string& model_path) {
                       << entities[tuple.entity] << '/'
                       << relations[tuple.relation] << " routed="
                       << (routed ? "yes" : "no") << " rank=" << rank << '\n';
+            print_sequence_evidence_diagnostics(
+                "adaptive_prior_positive_candidate=" + prompt.first + '/' +
+                    entities[tuple.entity] + '/' + relations[tuple.relation],
+                memory.hook);
         }
     }
 
