@@ -621,8 +621,9 @@ FactorizedLayerMemoryHook::authorize_selection(
                 diagnostic.margin_accepted =
                     diagnostic.identity_gap >=
                     sequence_entity_evidence_config_->minimum_identity_margin;
-                diagnostic.eligible = diagnostic.association_accepted &&
-                                      diagnostic.radius_accepted &&
+                // Association proposes and ranks registered labels. Calibrated
+                // sequence evidence supplies the fail-closed identity proof.
+                diagnostic.eligible = diagnostic.radius_accepted &&
                                       diagnostic.margin_accepted;
                 if (diagnostic.eligible) {
                     diagnostic.joint_score =

@@ -58,6 +58,59 @@ This isolates candidate breadth. If a named label still fails, diagnostics will
 identify association radius, evidence radius, identity margin, or score
 competition before another mechanism changes.
 
+## Iteration Results
+
+Evaluating all four labels retained the complete fresh-development result and
+every no-op control, but the reused prior corpus remained at 30/32 joint-known
+selections and 11/12 composition routes. All three misses had the same isolated
+cause:
+
+- the Bellatrix sequence-evidence distance was inside its calibrated radius;
+- the gap to the nearest competing label was far above the calibrated identity
+  margin; and
+- only the association distance was outside the legacy association radius.
+
+For example, `resolve/Bellatrix/color` had evidence distance `0.246388` and
+identity gap `1.45154`, while its association distance `1.1014` alone prevented
+eligibility. The two `memory-index/Bellatrix/*` requests had evidence distance
+`0.220927` and identity gap `1.29914` with the same failure mode.
+
+## Second Tuning Hypothesis
+
+Once every registered label is evaluated, association is a candidate-proposal
+and ranking signal rather than independent proof of identity. Requiring it to
+also pass its radius duplicates authority and can veto strong, unambiguous
+sequence evidence. The second iteration therefore:
+
+- retains association distance in the normalized joint score and diagnostics;
+- removes association-radius acceptance from sequence-evidence eligibility;
+- keeps the calibrated sequence-evidence radius and cross-label identity margin
+  as hard gates; and
+- leaves all downstream relation, compatibility, intent, action, and payload
+  gates unchanged.
+
+This is an authority correction, not verifier retraining. Unknown requests must
+still fail both calibrated evidence safeguards and remain exact no-ops.
+
+## Locked Configuration
+
+The second iteration satisfied the complete reusable-corpus objective:
+
+- fresh development: 32/32 known selections and 32/32 unknown exact no-ops;
+- prior joint corpus: 32/32 known selections and 32/32 unknown exact no-ops;
+- conditioned corpus: 32/32 known selections and 32/32 unknown exact no-ops;
+- prior local corpus: 12/12 compatibility, 60/60 cross checks, 12/12 intent,
+  and 36/36 negative exact no-ops;
+- prior composition corpus: 12/12 routes at rank one and 18/18 negative exact
+  no-ops; and
+- older safety controls: 30/30 negatives plus 4/4 each for missing tuples,
+  unknown entities, and unknown relations, all exact no-ops.
+
+The configuration is therefore locked with four-label candidate evaluation,
+association retained in ranking, and sequence-evidence radius plus identity
+margin as the hard identity gates. No verifier retraining or threshold change
+was required. The sealed harness may be added only after this lock is committed.
+
 ## Tuning Objective
 
 A lock candidate must achieve all of the following on the reusable corpus:

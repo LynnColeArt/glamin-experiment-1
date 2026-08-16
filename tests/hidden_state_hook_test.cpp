@@ -722,7 +722,7 @@ void test_sequence_entity_evidence_uses_independent_witnesses() {
         });
 
     const auto selected = hook.authorize_nearest(
-        {{0.9F, 5.0F}, {0.4F, 10.0F}},
+        {{0.2F, 5.0F}, {0.1F, 10.0F}},
         {{1.0F, 0.0F}},
         {1.0F, 1.0F});
     const auto diagnostic = std::find_if(
@@ -735,13 +735,14 @@ void test_sequence_entity_evidence_uses_independent_witnesses() {
                selected.entity.factor_label == 11U &&
                selected.entity.address_candidate == 0U &&
                selected.entity_candidate_labels ==
-                   std::vector<std::uint64_t>({11U, 10U}) &&
+                   std::vector<std::uint64_t>({10U, 11U}) &&
                diagnostic != selected.entity_evidence_diagnostics.end() &&
                diagnostic->association_state == 0U &&
-               diagnostic->evidence_state == 1U && diagnostic->eligible &&
+               diagnostic->evidence_state == 1U &&
+               !diagnostic->association_accepted && diagnostic->eligible &&
                diagnostic->radius_accepted && diagnostic->margin_accepted &&
                selected.tuple_found && selected.action_accepted,
-           "sequence evidence did not separate association and identity witnesses");
+           "sequence evidence did not override a weak association witness");
 
     const auto unknown = hook.authorize_nearest(
         {{0.9F, 5.0F}, {0.4F, 5.5F}},
