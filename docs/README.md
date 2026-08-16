@@ -48,6 +48,10 @@
 - [Sequence-level multi-prototype entity evidence](sequence-entity-evidence.md)
   preregisters a replacement evidence gate that aggregates identity support
   across token states and preserves separate syntax-view prototypes.
+- [Adaptive entity-evidence tuning](adaptive-entity-evidence-tuning.md) promotes
+  all observed corpora to reusable development data while preserving the two
+  never-executed stages as the final sealed evaluation, and records their
+  complete one-shot pass after the configuration lock.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 
@@ -123,3 +127,13 @@ unknown control and improved composition from 10/12 to 11/12, repairing the
 Bellatrix/color `ledger` route. Bellatrix/color `resolve` remained unrouted, and
 the stopped joint-development corpus reached 30/32, so the experiment stopped
 before either untouched frozen stage.
+The adaptive follow-up evaluated all four registered labels, then made
+calibrated sequence evidence authoritative for identity while retaining
+association as a proposal and ranking signal. The locked configuration passed
+the complete reusable corpus at 32/32 joint selections, 12/12 rank-one
+composition routes, and every prior exact-no-op control. Its one-shot sealed
+evaluation then passed 16/16 local known selections, 16/16 local unknown exact
+no-ops, 12/12 rank-one composition positives, 18/18 intent-negative exact
+no-ops, and all six missing/unknown boundary controls. No verifier retraining or
+threshold change was required. Broader adversarial evaluation and atomic
+persistence remain future work.
