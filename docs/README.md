@@ -48,6 +48,9 @@
 - [Sequence-level multi-prototype entity evidence](sequence-entity-evidence.md)
   preregisters a replacement evidence gate that aggregates identity support
   across token states and preserves separate syntax-view prototypes.
+- [Adaptive entity-evidence tuning](adaptive-entity-evidence-tuning.md) promotes
+  all observed corpora to reusable development data while preserving the two
+  never-executed stages as the final sealed evaluation.
 - [Safety model](safety-model.md) separates information from executable
   authority and records the initial trust assumptions.
 

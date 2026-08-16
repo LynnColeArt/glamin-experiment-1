@@ -109,6 +109,9 @@ A rollback reproduced the baseline logits exactly in the same process.
     passed 32/32 plus 32/32 unknown no-ops, but the one-shot regression reached
     11/12 composition and 30/32 stopped-corpus selections, so it stopped before
     new frozen evaluation.
+  - [ ] Adaptively tune candidate breadth and entity evidence on all observed
+    corpora, then lock one configuration before evaluating the two still-sealed
+    stages.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and
