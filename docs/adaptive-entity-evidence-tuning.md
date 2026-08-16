@@ -2,7 +2,8 @@
 
 ## Status
 
-Adaptive engineering lane opened on 2026-08-16 from merged baseline `cec70fa`.
+Completed on 2026-08-16. The adaptive engineering lane opened from merged
+baseline `cec70fa`.
 The stopped sequence-evidence experiment and its one-shot result remain
 immutable history. This lane explicitly permits repeated evaluation, diagnostic
 instrumentation, parameter tuning, and architectural changes on every prompt
@@ -126,3 +127,27 @@ Once a candidate satisfies this objective, commit its complete configuration
 before adding or executing the sealed evaluation harness. Any failure on the
 sealed corpus ends that locked evaluation; it may inform a later adaptive lane
 but may not be used to relabel the failed lock as an unbiased pass.
+
+## Sealed Evaluation Result
+
+The configuration was locked in commit `b8b13c1`; the frozen harness was added
+separately in commit `c523983`. The complete executable first reproduced every
+development and prior-regression criterion, then executed both untouched stages
+once. That one-shot evaluation passed:
+
+- untouched local knowns: 16/16 named entities appeared in the association top
+  two, 16/16 were jointly selected, and 16/16 had finite diagnostics;
+- untouched local unknowns: 16/16 were rejected, remained exact no-ops, and had
+  finite diagnostics;
+- untouched composition positives: 12/12 selected the named factors, passed
+  every downstream gate, applied, and ranked the target token first;
+- untouched non-execution controls: 18/18 reached and failed intent while
+  remaining exact no-ops; and
+- untouched boundary controls: 2/2 missing tuples, 2/2 unknown entities, and
+  2/2 unknown relations failed at their specified upstream boundary and
+  remained exact no-ops.
+
+The result supports the narrow claim that, for these fixed corpora and model,
+sequence evidence can own registered-entity identity while association remains
+a proposal and ranking signal. It does not establish adversarial robustness,
+open-ended entity scaling, or authority for external actions.

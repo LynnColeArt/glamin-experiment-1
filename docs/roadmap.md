@@ -74,7 +74,7 @@ A rollback reproduced the baseline logits exactly in the same process.
 - [x] Separate factorized authorization at `l_out-34` from target-state action at
   `l_out-35`; record 10/10 conditional target transfer and the 10/12 compact
   entity-routing boundary on a new frozen split.
-- [ ] Generalize entity, relation, and action-context representations across
+- [x] Generalize entity, relation, and action-context representations across
   frozen, previously unseen paraphrase sets.
   - [x] Compare variance and association-signal entity projections on a new
     18-prompt evaluation set plus six unknown-entity controls: association
@@ -109,9 +109,11 @@ A rollback reproduced the baseline logits exactly in the same process.
     passed 32/32 plus 32/32 unknown no-ops, but the one-shot regression reached
     11/12 composition and 30/32 stopped-corpus selections, so it stopped before
     new frozen evaluation.
-  - [ ] Adaptively tune candidate breadth and entity evidence on all observed
+  - [x] Adaptively tune candidate breadth and entity evidence on all observed
     corpora, then lock one configuration before evaluating the two still-sealed
-    stages.
+    stages: all reusable criteria passed, followed by a one-shot sealed pass at
+    16/16 local selections, 16/16 unknown no-ops, 12/12 rank-one compositions,
+    18/18 intent-negative no-ops, and 6/6 upstream-boundary no-ops.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and
