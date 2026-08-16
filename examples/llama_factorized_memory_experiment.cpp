@@ -507,6 +507,50 @@ conjunctive_composition_negative_prompts(
 }
 
 std::vector<std::pair<std::string, std::string>>
+untouched_local_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"profile",
+         "Read " + relation + " from the profile headed " + entity +
+             ".\nValue:"},
+        {"catalog",
+         "catalog.entity(" + entity + ").field(" + relation + ").get() =>"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+untouched_composition_positive_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"retained-record",
+         "Fetch the " + relation + " datum in " + entity +
+             "'s retained record.\nDatum:"},
+        {"archive-lookup",
+         "archive.lookup(entity=" + entity + ", relation=" + relation +
+             ") ->"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
+untouched_composition_negative_prompts(
+    const std::string& entity,
+    const std::string& relation) {
+    return {
+        {"outline",
+         "Outline a request for " + entity + "'s " + relation +
+             " without sending it.\nOutline:"},
+        {"check",
+         "Check whether " + entity + " could have a " + relation +
+             " lookup; do not retrieve it.\nCheck:"},
+        {"inert-example",
+         "Show \"lookup " + entity + " " + relation +
+             "\" as inert example text.\nExample:"},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>>
 replication_development_positive_prompts(
     const std::string& entity,
     const std::string& relation) {
@@ -5947,6 +5991,366 @@ int run(const std::string& model_path) {
             sequence_prior_unknown_relation_count) {
         throw std::runtime_error(
             "sequence entity evidence failed one-shot prior regression");
+    }
+
+    const auto print_untouched_result =
+        [&](const std::string& prefix,
+            const MemoryInferenceResult& memory,
+            const std::size_t rank,
+            const float maximum_delta) {
+            std::cout << prefix << "/candidates";
+            for (std::size_t index = 0;
+                 index < memory.hook.entity_candidate_labels.size();
+                 ++index) {
+                std::cout << ' ' << memory.hook.entity_candidate_labels[index]
+                          << ':'
+                          << memory.hook.entity_candidate_distances[index];
+            }
+            std::cout << "/selected " << memory.hook.entity.factor_label
+                      << "/state " << memory.hook.entity.address_candidate
+                      << "/known "
+                      << (memory.hook.known_entity_accepted ? "yes" : "no")
+                      << "/relation " << memory.hook.relation.factor_label
+                      << "/tuple "
+                      << (memory.hook.tuple_found ? "yes" : "no")
+                      << "/compatibility "
+                      << (memory.hook.compatibility_accepted ? "yes" : "no")
+                      << "/intent "
+                      << (memory.hook.intent_accepted ? "yes" : "no")
+                      << "/action "
+                      << (memory.hook.action_accepted ? "yes" : "no")
+                      << "/applied "
+                      << (memory.hook.applied ? "yes" : "no")
+                      << "/rank " << rank << "/max_delta " << maximum_delta
+                      << '\n';
+            print_sequence_evidence_diagnostics(
+                prefix + "/evidence", memory.hook);
+        };
+
+    const std::vector<std::string> untouched_unknown_entities{
+        "Rasalhague", "Merak", "Nunki", "Schedar"};
+    std::size_t untouched_local_top_two = 0U;
+    std::size_t untouched_local_selected = 0U;
+    std::size_t untouched_local_finite = 0U;
+    std::size_t untouched_local_known_count = 0U;
+    for (std::size_t entity = 0; entity < entities.size(); ++entity) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : untouched_local_prompts(
+                     entities[entity], relation)) {
+                ++untouched_local_known_count;
+                const auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                const auto memory = infer_with_target_state_memory(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    make_sequence_evidence_hook(),
+                    target_states,
+                    target_tensor,
+                    action_tensor);
+                const auto top_two_end = memory.hook.entity_candidate_labels.begin() +
+                    static_cast<std::ptrdiff_t>(std::min<std::size_t>(
+                        2U, memory.hook.entity_candidate_labels.size()));
+                const auto in_top_two = std::find(
+                    memory.hook.entity_candidate_labels.begin(),
+                    top_two_end,
+                    entity) != top_two_end;
+                const auto selected = memory.hook.entity.accepted &&
+                                      memory.hook.known_entity_accepted &&
+                                      memory.hook.entity.factor_label == entity;
+                const auto finite = diagnostics_finite(memory.hook);
+                const auto delta = maximum_logit_difference(
+                    baseline.logits, memory.logits);
+                untouched_local_top_two += in_top_two ? 1U : 0U;
+                untouched_local_selected += selected ? 1U : 0U;
+                untouched_local_finite += finite ? 1U : 0U;
+                print_untouched_result(
+                    "untouched_local_known=" + prompt.first + '/' +
+                        entities[entity] + '/' + relation,
+                    memory,
+                    0U,
+                    delta);
+            }
+        }
+    }
+
+    std::size_t untouched_local_unknown_rejections = 0U;
+    std::size_t untouched_local_unknown_noops = 0U;
+    std::size_t untouched_local_unknown_finite = 0U;
+    std::size_t untouched_local_unknown_count = 0U;
+    for (const auto& unknown : untouched_unknown_entities) {
+        for (const auto& relation : relations) {
+            for (const auto& prompt : untouched_local_prompts(unknown, relation)) {
+                ++untouched_local_unknown_count;
+                const auto baseline = capture(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    hidden_dimension,
+                    target_tensor);
+                const auto memory = infer_with_target_state_memory(
+                    model.get(),
+                    vocab,
+                    prompt.second,
+                    make_sequence_evidence_hook(),
+                    target_states,
+                    target_tensor,
+                    action_tensor);
+                const auto rejected = !memory.hook.known_entity_accepted;
+                const auto delta = maximum_logit_difference(
+                    baseline.logits, memory.logits);
+                const auto noop = rejected && !memory.hook.applied &&
+                                  delta <= 1.0e-5F;
+                const auto finite = diagnostics_finite(memory.hook);
+                untouched_local_unknown_rejections += rejected ? 1U : 0U;
+                untouched_local_unknown_noops += noop ? 1U : 0U;
+                untouched_local_unknown_finite += finite ? 1U : 0U;
+                print_untouched_result(
+                    "untouched_local_unknown=" + prompt.first + '/' + unknown +
+                        '/' + relation,
+                    memory,
+                    0U,
+                    delta);
+            }
+        }
+    }
+
+    std::cout << "untouched_local_summary=top_two "
+              << untouched_local_top_two << '/' << untouched_local_known_count
+              << " selected " << untouched_local_selected << '/'
+              << untouched_local_known_count << " known_finite "
+              << untouched_local_finite << '/' << untouched_local_known_count
+              << " unknown_rejections " << untouched_local_unknown_rejections
+              << '/' << untouched_local_unknown_count << " unknown_noops "
+              << untouched_local_unknown_noops << '/'
+              << untouched_local_unknown_count << " unknown_finite "
+              << untouched_local_unknown_finite << '/'
+              << untouched_local_unknown_count << '\n';
+    if (untouched_local_known_count != 16U ||
+        untouched_local_unknown_count != 16U ||
+        untouched_local_top_two != untouched_local_known_count ||
+        untouched_local_selected != untouched_local_known_count ||
+        untouched_local_finite != untouched_local_known_count ||
+        untouched_local_unknown_rejections != untouched_local_unknown_count ||
+        untouched_local_unknown_noops != untouched_local_unknown_count ||
+        untouched_local_unknown_finite != untouched_local_unknown_count) {
+        throw std::runtime_error("locked untouched local evaluation failed");
+    }
+
+    std::size_t untouched_composition_positive_passes = 0U;
+    std::size_t untouched_composition_positive_count = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : untouched_composition_positive_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            ++untouched_composition_positive_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_sequence_evidence_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto rank = token_rank(memory.logits, tuple.target_token);
+            const auto routed = memory.hook.entity.accepted &&
+                                memory.hook.known_entity_accepted &&
+                                memory.hook.entity.factor_label == tuple.entity &&
+                                memory.hook.relation.accepted &&
+                                memory.hook.relation.factor_label == tuple.relation &&
+                                memory.hook.tuple_found &&
+                                memory.hook.compatibility_accepted &&
+                                memory.hook.intent_accepted &&
+                                memory.hook.action_accepted &&
+                                memory.hook.applied;
+            const auto passed = routed && rank == 1U &&
+                                diagnostics_finite(memory.hook);
+            untouched_composition_positive_passes += passed ? 1U : 0U;
+            print_untouched_result(
+                "untouched_composition_positive=" + prompt.first + '/' +
+                    entities[tuple.entity] + '/' + relations[tuple.relation],
+                memory,
+                rank,
+                maximum_logit_difference(baseline.logits, memory.logits));
+        }
+    }
+
+    std::size_t untouched_composition_negative_noops = 0U;
+    std::size_t untouched_composition_negative_count = 0U;
+    for (const auto& tuple : tuples) {
+        for (const auto& prompt : untouched_composition_negative_prompts(
+                 entities[tuple.entity], relations[tuple.relation])) {
+            ++untouched_composition_negative_count;
+            const auto baseline = capture(
+                model.get(),
+                vocab,
+                prompt.second,
+                hidden_dimension,
+                target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt.second,
+                make_sequence_evidence_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto noop = memory.hook.entity.accepted &&
+                              memory.hook.known_entity_accepted &&
+                              memory.hook.relation.accepted &&
+                              memory.hook.tuple_found &&
+                              memory.hook.compatibility_accepted &&
+                              !memory.hook.intent_accepted &&
+                              !memory.hook.action_accepted &&
+                              !memory.hook.applied && delta <= 1.0e-5F &&
+                              diagnostics_finite(memory.hook);
+            untouched_composition_negative_noops += noop ? 1U : 0U;
+            print_untouched_result(
+                "untouched_composition_negative=" + prompt.first + '/' +
+                    entities[tuple.entity] + '/' + relations[tuple.relation],
+                memory,
+                0U,
+                delta);
+        }
+    }
+
+    std::size_t untouched_missing_noops = 0U;
+    const auto check_untouched_missing =
+        [&](const std::string& name,
+            const std::string& prompt,
+            const std::size_t entity,
+            const std::size_t relation) {
+            const auto baseline = capture(
+                model.get(), vocab, prompt, hidden_dimension, target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt,
+                make_sequence_evidence_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto noop = memory.hook.entity.accepted &&
+                              memory.hook.known_entity_accepted &&
+                              memory.hook.entity.factor_label == entity &&
+                              memory.hook.relation.accepted &&
+                              memory.hook.relation.factor_label == relation &&
+                              !memory.hook.tuple_found && !memory.hook.applied &&
+                              delta <= 1.0e-5F &&
+                              diagnostics_finite(memory.hook);
+            untouched_missing_noops += noop ? 1U : 0U;
+            print_untouched_result(
+                "untouched_missing=" + name, memory, 0U, delta);
+        };
+    check_untouched_missing(
+        "archive/Bellatrix/material",
+        "archive.lookup(entity=Bellatrix, relation=material) ->",
+        1U,
+        1U);
+    check_untouched_missing(
+        "retained-record/Cygnus/color",
+        "Fetch the color datum in Cygnus's retained record.\nDatum:",
+        2U,
+        0U);
+
+    std::size_t untouched_unknown_entity_noops = 0U;
+    const auto check_untouched_unknown_entity =
+        [&](const std::string& name, const std::string& prompt) {
+            const auto baseline = capture(
+                model.get(), vocab, prompt, hidden_dimension, target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt,
+                make_sequence_evidence_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto noop = !memory.hook.known_entity_accepted &&
+                              !memory.hook.applied && delta <= 1.0e-5F &&
+                              diagnostics_finite(memory.hook);
+            untouched_unknown_entity_noops += noop ? 1U : 0U;
+            print_untouched_result(
+                "untouched_unknown_entity=" + name, memory, 0U, delta);
+        };
+    check_untouched_unknown_entity(
+        "archive/Rasalhague/color",
+        "archive.lookup(entity=Rasalhague, relation=color) ->");
+    check_untouched_unknown_entity(
+        "retained-record/Merak/material",
+        "Fetch the material datum in Merak's retained record.\nDatum:");
+
+    std::size_t untouched_unknown_relation_noops = 0U;
+    const auto check_untouched_unknown_relation =
+        [&](const std::string& name,
+            const std::string& prompt,
+            const std::size_t entity) {
+            const auto baseline = capture(
+                model.get(), vocab, prompt, hidden_dimension, target_tensor);
+            const auto memory = infer_with_target_state_memory(
+                model.get(),
+                vocab,
+                prompt,
+                make_sequence_evidence_hook(),
+                target_states,
+                target_tensor,
+                action_tensor);
+            const auto delta = maximum_logit_difference(
+                baseline.logits, memory.logits);
+            const auto noop = memory.hook.entity.accepted &&
+                              memory.hook.known_entity_accepted &&
+                              memory.hook.entity.factor_label == entity &&
+                              !memory.hook.relation.accepted &&
+                              !memory.hook.applied && delta <= 1.0e-5F &&
+                              diagnostics_finite(memory.hook);
+            untouched_unknown_relation_noops += noop ? 1U : 0U;
+            print_untouched_result(
+                "untouched_unknown_relation=" + name, memory, 0U, delta);
+        };
+    check_untouched_unknown_relation(
+        "archive/Arcturus/density",
+        "archive.lookup(entity=Arcturus, relation=density) ->",
+        0U);
+    check_untouched_unknown_relation(
+        "retained-record/Draco/birthplace",
+        "Fetch the birthplace datum in Draco's retained record.\nDatum:",
+        3U);
+
+    std::cout << "untouched_composition_summary=positives "
+              << untouched_composition_positive_passes << '/'
+              << untouched_composition_positive_count << " negative_noops "
+              << untouched_composition_negative_noops << '/'
+              << untouched_composition_negative_count << " missing_noops "
+              << untouched_missing_noops << "/2 unknown_entity_noops "
+              << untouched_unknown_entity_noops
+              << "/2 unknown_relation_noops "
+              << untouched_unknown_relation_noops << "/2\n";
+    if (untouched_composition_positive_count != 12U ||
+        untouched_composition_negative_count != 18U ||
+        untouched_composition_positive_passes !=
+            untouched_composition_positive_count ||
+        untouched_composition_negative_noops !=
+            untouched_composition_negative_count ||
+        untouched_missing_noops != 2U ||
+        untouched_unknown_entity_noops != 2U ||
+        untouched_unknown_relation_noops != 2U) {
+        throw std::runtime_error(
+            "locked untouched composition evaluation failed");
     }
 
     std::cout << "stored_tuples=" << tuples.size()
