@@ -43,6 +43,29 @@ struct LabelConditionedGateConfig {
     std::vector<LabelConditionedGateEntry> entries;
 };
 
+struct SequenceEntityEvidenceConfig {
+    FactorSearchConfig search;
+    std::vector<std::vector<float>> prototypes;
+    std::vector<std::uint64_t> prototype_labels;
+    float minimum_identity_margin{0.0F};
+};
+
+struct EntityEvidenceDiagnostic {
+    std::uint64_t label{0};
+    float association_distance{std::numeric_limits<float>::max()};
+    float evidence_distance{std::numeric_limits<float>::max()};
+    float competitor_distance{std::numeric_limits<float>::max()};
+    float identity_gap{-std::numeric_limits<float>::max()};
+    float joint_score{std::numeric_limits<float>::max()};
+    std::size_t association_state{0U};
+    std::size_t evidence_state{0U};
+    std::size_t evidence_prototype{0U};
+    bool association_accepted{false};
+    bool radius_accepted{false};
+    bool margin_accepted{false};
+    bool eligible{false};
+};
+
 struct FactorEvidence {
     GlaminGenerationId generation{0};
     std::uint64_t memory_label{0};
@@ -66,6 +89,7 @@ struct FactorizedMemoryResult {
     std::uint64_t nearest_known_entity_label{0};
     std::vector<std::uint64_t> entity_candidate_labels;
     std::vector<float> entity_candidate_distances;
+    std::vector<EntityEvidenceDiagnostic> entity_evidence_diagnostics;
     float entity_joint_score{std::numeric_limits<float>::max()};
     std::size_t action_variant{0};
     bool tuple_found{false};
@@ -145,7 +169,9 @@ public:
         std::optional<ContrastiveGateConfig> known_entity_config = std::nullopt,
         std::optional<LabelConditionedGateConfig>
             label_conditioned_entity_config = std::nullopt,
-        std::size_t joint_entity_candidate_count = 1U);
+        std::size_t joint_entity_candidate_count = 1U,
+        std::optional<SequenceEntityEvidenceConfig>
+            sequence_entity_evidence_config = std::nullopt);
 
     FactorizedLayerMemoryHook(const FactorizedLayerMemoryHook&) = delete;
     FactorizedLayerMemoryHook& operator=(const FactorizedLayerMemoryHook&) = delete;
@@ -201,6 +227,8 @@ private:
     std::optional<ContrastiveGateConfig> known_entity_config_;
     std::optional<LabelConditionedGateConfig> label_conditioned_entity_config_;
     std::size_t joint_entity_candidate_count_{1U};
+    std::optional<SequenceEntityEvidenceConfig>
+        sequence_entity_evidence_config_;
 };
 
 } // namespace gx1

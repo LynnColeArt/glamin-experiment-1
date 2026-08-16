@@ -2,6 +2,7 @@
 #include "gx1/hidden_state_hook.hpp"
 #include "gx1/hook_artifact.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -670,6 +671,94 @@ void test_joint_entity_selection_can_choose_second_association_label() {
            "joint entity selection admitted an unverified candidate");
 }
 
+void test_sequence_entity_evidence_uses_independent_witnesses() {
+    gx1::GlaminRuntime runtime(1);
+    gx1::GlaminGenerationStore generations(runtime);
+    const auto entity_generation = generations.mount_flat(
+        "sequence-evidence-entities", 1, {0.0F, 1.0F});
+    const auto relation_generation = generations.mount_flat(
+        "sequence-evidence-relations", 1, {1.0F});
+    generations.activate(entity_generation);
+    auto entity_pin = generations.pin_active();
+    generations.activate(relation_generation);
+    auto relation_pin = generations.pin_active();
+
+    const gx1::FactorSearchConfig factor_config{
+        2,
+        1,
+        {1.0F, 0.0F},
+        gx1::ProjectionNormalization::none,
+        0.5F,
+    };
+    auto payloads = std::make_shared<gx1::TupleResidualLedger>();
+    payloads->insert(11U, 20U, {0.0F, 1.0F});
+    gx1::FactorizedLayerMemoryHook hook(
+        std::move(entity_pin),
+        factor_config,
+        {10U, 11U},
+        std::move(relation_pin),
+        factor_config,
+        {20U},
+        1.0F,
+        payloads,
+        std::numeric_limits<float>::max(),
+        std::nullopt,
+        std::nullopt,
+        false,
+        std::nullopt,
+        std::nullopt,
+        2U,
+        gx1::SequenceEntityEvidenceConfig{
+            gx1::FactorSearchConfig{
+                2,
+                1,
+                {0.0F, 1.0F},
+                gx1::ProjectionNormalization::none,
+                1.0F,
+            },
+            {{0.0F}, {1.0F}, {10.0F}, {11.0F}},
+            {10U, 10U, 11U, 11U},
+            2.0F,
+        });
+
+    const auto selected = hook.authorize_nearest(
+        {{0.9F, 5.0F}, {0.4F, 10.0F}},
+        {{1.0F, 0.0F}},
+        {1.0F, 1.0F});
+    const auto diagnostic = std::find_if(
+        selected.entity_evidence_diagnostics.begin(),
+        selected.entity_evidence_diagnostics.end(),
+        [](const gx1::EntityEvidenceDiagnostic& value) {
+            return value.label == 11U;
+        });
+    expect(selected.entity.accepted && selected.known_entity_accepted &&
+               selected.entity.factor_label == 11U &&
+               selected.entity.address_candidate == 0U &&
+               selected.entity_candidate_labels ==
+                   std::vector<std::uint64_t>({11U, 10U}) &&
+               diagnostic != selected.entity_evidence_diagnostics.end() &&
+               diagnostic->association_state == 0U &&
+               diagnostic->evidence_state == 1U && diagnostic->eligible &&
+               diagnostic->radius_accepted && diagnostic->margin_accepted &&
+               selected.tuple_found && selected.action_accepted,
+           "sequence evidence did not separate association and identity witnesses");
+
+    const auto unknown = hook.authorize_nearest(
+        {{0.9F, 5.0F}, {0.4F, 5.5F}},
+        {{1.0F, 0.0F}},
+        {1.0F, 1.0F});
+    expect(!unknown.entity.accepted && !unknown.known_entity_accepted &&
+               unknown.entity_evidence_diagnostics.size() == 2U &&
+               std::none_of(
+                   unknown.entity_evidence_diagnostics.begin(),
+                   unknown.entity_evidence_diagnostics.end(),
+                   [](const gx1::EntityEvidenceDiagnostic& value) {
+                       return value.eligible;
+                   }) &&
+               !unknown.tuple_found && !unknown.action_accepted,
+           "sequence evidence admitted an unsupported identity");
+}
+
 void test_persistent_hook_artifact_atomic_activation_and_corruption() {
     expect(
         gx1::sha256_text("abc") ==
@@ -792,6 +881,7 @@ int main() {
         test_factorized_authorization_conjoins_compatibility_and_intent();
         test_label_conditioned_entity_gate_confirms_selected_identity();
         test_joint_entity_selection_can_choose_second_association_label();
+        test_sequence_entity_evidence_uses_independent_witnesses();
         test_persistent_hook_artifact_atomic_activation_and_corruption();
         std::cout << "hidden-state Glamin hook tests passed\n";
         return EXIT_SUCCESS;

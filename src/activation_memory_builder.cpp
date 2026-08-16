@@ -594,7 +594,8 @@ ActivationMemoryBuildResult ActivationMemoryBuilder::build(
     const auto& key_groups = result.key_associations;
 
     auto minimum_negative = std::numeric_limits<float>::max();
-    float maximum_negative_group_margin = 0.0F;
+    auto maximum_negative_group_margin =
+        -std::numeric_limits<float>::max();
     if (config.include_cross_association_keys_in_gate) {
         for (std::size_t left = 0; left < result.keys.size(); ++left) {
             for (std::size_t right = left + 1U; right < result.keys.size(); ++right) {

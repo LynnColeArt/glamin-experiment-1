@@ -104,6 +104,11 @@ A rollback reproduced the baseline logits exactly in the same process.
     stopped corpus as a binding regression gate: development reached 32/32
     top-two inclusion and 32/32 unknown exact no-ops, but only 28/32 correct
     selections, so it stopped before regression and every new frozen prompt.
+  - [x] Replace single-state, single-centroid verification with a fixed-width
+    sequence-level multi-prototype entity evidence gate: fresh development
+    passed 32/32 plus 32/32 unknown no-ops, but the one-shot regression reached
+    11/12 composition and 30/32 stopped-corpus selections, so it stopped before
+    new frozen evaluation.
 - [ ] Persist and live-swap the complete factorized generation atomically.
 - [ ] Add memory-disabled, generation-A, and generation-B baselines.
 - [x] Measure artifact construction time, artifact size, inference latency, and

@@ -341,3 +341,14 @@ Joint verification selected only 28/32, however: both relations for Bellatrix
 and Draco failed on the `memory-index` form because no candidate state was
 eligible. The experiment stopped at development, leaving the full prior corpus
 and every new frozen prompt unevaluated.
+
+A sequence-level replacement retained the top-two association candidates but
+represented every entity with six syntax-view prototypes and searched the full
+token sequence for identity evidence independently of the association witness.
+It passed fresh development at 32/32 known selections and 32/32 unknown exact
+no-ops. The first and only prior-regression run preserved 18/18 composition
+negative, 30/30 older wrong-intent, and all missing and unknown no-ops. It
+repaired Bellatrix/color `ledger` and improved composition from 10/12 to 11/12,
+but Bellatrix/color `resolve` remained unrouted at rank 3191 and the stopped
+joint-development corpus reached only 30/32 selections. The experiment stopped
+before either still-untouched frozen stage.
